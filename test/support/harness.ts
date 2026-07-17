@@ -1,9 +1,8 @@
-import type { Database } from "better-sqlite3";
 import type { Bot, Transformer } from "grammy";
 import type { UserFromGetMe } from "grammy/types";
 import { createBot } from "../../src/bot.js";
 import type { Config } from "../../src/config.js";
-import { createDb } from "../../src/db.js";
+import { createDb, type Db } from "../../src/db.js";
 import { FakeClock } from "./fakeClock.js";
 
 export interface ApiCall {
@@ -14,7 +13,7 @@ export interface ApiCall {
 export interface TestHarness {
   bot: Bot;
   calls: ApiCall[];
-  db: Database;
+  db: Db;
   clock: FakeClock;
   handleUpdate: Bot["handleUpdate"];
 }
@@ -36,7 +35,8 @@ const testBotInfo = {
 } as unknown as UserFromGetMe;
 
 export function createTestHarness(config: Config): TestHarness {
-  const bot = createBot(config, { botInfo: testBotInfo });
+  const db = createDb(":memory:");
+  const bot = createBot(config, db, { botInfo: testBotInfo });
   const calls: ApiCall[] = [];
 
   const stubTransport: Transformer = (_prev, method, payload) => {
@@ -45,7 +45,6 @@ export function createTestHarness(config: Config): TestHarness {
   };
   bot.api.config.use(stubTransport);
 
-  const db = createDb(":memory:");
   const clock = new FakeClock(new Date("2026-01-01T12:00:00Z"));
 
   return {

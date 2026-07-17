@@ -1,7 +1,8 @@
-import type { Chat, Update, User } from "grammy/types";
+import type { Chat, InlineKeyboardMarkup, Message, Update, User } from "grammy/types";
 
 let nextUpdateId = 1;
 let nextMessageId = 1;
+let nextCallbackQueryId = 1;
 
 export interface TextMessageOptions {
   userId: number;
@@ -40,6 +41,45 @@ export function textMessageUpdate(options: TextMessageOptions): Update {
         options.text.startsWith("/")
           ? [{ type: "bot_command", offset: 0, length: options.text.split(" ")[0]!.length }]
           : undefined,
+    },
+  };
+}
+
+export interface CallbackQueryOptions {
+  userId: number;
+  chatId: number;
+  data: string;
+  messageId: number;
+  replyMarkup?: InlineKeyboardMarkup;
+  username?: string;
+}
+
+export function callbackQueryUpdate(options: CallbackQueryOptions): Update {
+  const from: User = {
+    id: options.userId,
+    is_bot: false,
+    first_name: "Test",
+    username: options.username ?? "test_user",
+  };
+
+  const chat: Chat = { id: options.chatId, type: "group", title: "Household" };
+
+  const message: Message = {
+    message_id: options.messageId,
+    date: Math.floor(Date.now() / 1000),
+    chat,
+    text: "placeholder",
+    reply_markup: options.replyMarkup,
+  };
+
+  return {
+    update_id: nextUpdateId++,
+    callback_query: {
+      id: String(nextCallbackQueryId++),
+      from,
+      chat_instance: String(options.chatId),
+      data: options.data,
+      message,
     },
   };
 }

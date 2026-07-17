@@ -1,8 +1,10 @@
 import { createBot } from "./bot.js";
 import { loadConfig } from "./config.js";
+import { createDb } from "./db.js";
 
 const config = loadConfig();
-const bot = createBot(config);
+const db = createDb(process.env.DB_PATH ?? "pantry.db");
+const bot = createBot(config, db);
 
 bot.start({
   onStart: (botInfo) => {
