@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import type { Db } from "./db.js";
 import { stockLots } from "./db/schema.js";
+import type { Db } from "./db.js";
 
 // Guarding the WHERE on the current status makes this the atomic
 // first-tap-wins primitive: two racing taps only ever let one succeed.

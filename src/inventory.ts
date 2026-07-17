@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
-import type { Db } from "./db.js";
 import { products, stockLots } from "./db/schema.js";
+import type { Db } from "./db.js";
 
 export const MESSAGE_LIMIT = 4096;
 
@@ -60,9 +60,7 @@ export function renderInventory(lots: InventoryLot[]): InventoryChunk[] {
   return packIntoChunks(blocks);
 }
 
-function packIntoChunks(
-  blocks: { text: string; lotId?: number }[],
-): InventoryChunk[] {
+function packIntoChunks(blocks: { text: string; lotId?: number }[]): InventoryChunk[] {
   const chunks: InventoryChunk[] = [];
   let lines: string[] = [];
   let lotIds: number[] = [];
@@ -78,8 +76,7 @@ function packIntoChunks(
 
   for (const block of blocks) {
     const text = capLength(block.text);
-    const candidateLength =
-      lines.reduce((sum, line) => sum + line.length + 1, 0) + text.length;
+    const candidateLength = lines.reduce((sum, line) => sum + line.length + 1, 0) + text.length;
     if (candidateLength > MESSAGE_LIMIT && lines.length > 0) {
       flush();
     }
@@ -96,9 +93,7 @@ function packIntoChunks(
 // Defends the "no message exceeds the Telegram limit" guarantee even for a
 // single implausibly long line, which would otherwise not fit any chunk.
 function capLength(text: string): string {
-  return text.length > MESSAGE_LIMIT
-    ? `${text.slice(0, MESSAGE_LIMIT - 1)}…`
-    : text;
+  return text.length > MESSAGE_LIMIT ? `${text.slice(0, MESSAGE_LIMIT - 1)}…` : text;
 }
 
 function buildSections(lots: InventoryLot[]): Section[] {
@@ -106,8 +101,7 @@ function buildSections(lots: InventoryLot[]): Section[] {
     .filter((lot) => lot.category === "food")
     .sort(
       (a, b) =>
-        compareExpiry(a.estExpiry, b.estExpiry) ||
-        a.productName.localeCompare(b.productName),
+        compareExpiry(a.estExpiry, b.estExpiry) || a.productName.localeCompare(b.productName),
     );
   const household = lots
     .filter((lot) => lot.category === "household")

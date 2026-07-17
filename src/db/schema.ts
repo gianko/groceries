@@ -1,9 +1,4 @@
-import {
-  integer,
-  real,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // Catalog identity: stable across purchases. Category and status vocabulary
 // are fixed per ADR-0001/0002 — no "low" or "expired" status ever exists.
@@ -12,9 +7,7 @@ export const products = sqliteTable("products", {
   name: text("name").notNull().unique(),
   category: text("category", { enum: ["food", "household"] }).notNull(),
   isStaple: integer("is_staple", { mode: "boolean" }).notNull().default(false),
-  autoRelist: integer("auto_relist", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  autoRelist: integer("auto_relist", { mode: "boolean" }).notNull().default(false),
   shelfLifeDays: integer("shelf_life_days"),
 });
 

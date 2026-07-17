@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createDb } from "../src/db.js";
 import { products, stockLots } from "../src/db/schema.js";
+import { createDb } from "../src/db.js";
 
 describe("createDb", () => {
   it("applies migrations so every schema table is queryable", () => {

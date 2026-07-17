@@ -1,0 +1,12 @@
+pre-commit:
+  jobs:
+    - name: biome
+      glob: "*.{js,ts,json}"
+      run: pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+    - name: typecheck
+      glob: "*.ts"
+      run: pnpm typecheck
+    - name: test
+      glob: "*.ts"
+      run: pnpm test

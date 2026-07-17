@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MESSAGE_LIMIT, renderInventory, type InventoryLot } from "../src/inventory.js";
+import { type InventoryLot, MESSAGE_LIMIT, renderInventory } from "../src/inventory.js";
 
 function lot(overrides: Partial<InventoryLot> & { lotId: number }): InventoryLot {
   return {

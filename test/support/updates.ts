@@ -37,10 +37,9 @@ export function textMessageUpdate(options: TextMessageOptions): Update {
       chat,
       from,
       text: options.text,
-      entities:
-        options.text.startsWith("/")
-          ? [{ type: "bot_command", offset: 0, length: options.text.split(" ")[0]!.length }]
-          : undefined,
+      entities: options.text.startsWith("/")
+        ? [{ type: "bot_command", offset: 0, length: options.text.split(" ")[0]!.length }]
+        : undefined,
     },
   };
 }

@@ -1,10 +1,4 @@
-import {
-  Bot,
-  GrammyError,
-  InlineKeyboard,
-  type BotConfig,
-  type Context,
-} from "grammy";
+import { Bot, type BotConfig, type Context, GrammyError, InlineKeyboard } from "grammy";
 import type { InlineKeyboardMarkup } from "grammy/types";
 import type { Config } from "./config.js";
 import type { Db } from "./db.js";
@@ -18,18 +12,13 @@ function finishCallbackData(lotId: number): string {
   return `${FINISH_PREFIX}${lotId}`;
 }
 
-export function createBot(
-  config: Config,
-  db: Db,
-  botConfig?: BotConfig<Context>,
-): Bot {
+export function createBot(config: Config, db: Db, botConfig?: BotConfig<Context>): Bot {
   const bot = new Bot(config.telegramBotToken, botConfig);
 
   bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
     const chatId = ctx.chat?.id;
-    const isAllowedUser =
-      userId !== undefined && config.allowedUserIds.includes(userId);
+    const isAllowedUser = userId !== undefined && config.allowedUserIds.includes(userId);
     const isAllowedChat = chatId !== undefined && chatId === config.groupChatId;
 
     if (!isAllowedUser || !isAllowedChat) {
@@ -49,10 +38,7 @@ export function createBot(
 
     for (const chunk of chunks) {
       const keyboard = buildFinishKeyboard(chunk.lotIds);
-      await ctx.reply(
-        chunk.text,
-        keyboard ? { reply_markup: keyboard } : undefined,
-      );
+      await ctx.reply(chunk.text, keyboard ? { reply_markup: keyboard } : undefined);
     }
   });
 
@@ -60,9 +46,7 @@ export function createBot(
     const lotId = Number(ctx.match[1]);
     const didFinish = finishLot(db, lotId);
 
-    await ctx.answerCallbackQuery(
-      didFinish ? "Marked finished" : "Already finished",
-    );
+    await ctx.answerCallbackQuery(didFinish ? "Marked finished" : "Already finished");
     await removeFinishButton(ctx, lotId);
   });
 
@@ -89,9 +73,7 @@ function removeButtonFromMarkup(
 ): InlineKeyboardMarkup | undefined {
   const rows = markup.inline_keyboard
     .map((row) =>
-      row.filter(
-        (button) => !("callback_data" in button) || button.callback_data !== callbackData,
-      ),
+      row.filter((button) => !("callback_data" in button) || button.callback_data !== callbackData),
     )
     .filter((row) => row.length > 0);
 
@@ -101,9 +83,7 @@ function removeButtonFromMarkup(
 // A losing racer recomputes the identical edit and gets Telegram's "message
 // is not modified" error, which is the expected no-op outcome, not a failure.
 async function removeFinishButton(ctx: Context, lotId: number): Promise<void> {
-  const markup = ctx.callbackQuery?.message?.reply_markup as
-    | InlineKeyboardMarkup
-    | undefined;
+  const markup = ctx.callbackQuery?.message?.reply_markup as InlineKeyboardMarkup | undefined;
   if (!markup) {
     return;
   }
@@ -111,9 +91,7 @@ async function removeFinishButton(ctx: Context, lotId: number): Promise<void> {
   const newMarkup = removeButtonFromMarkup(markup, finishCallbackData(lotId));
 
   try {
-    await ctx.editMessageReplyMarkup(
-      newMarkup ? { reply_markup: newMarkup } : undefined,
-    );
+    await ctx.editMessageReplyMarkup(newMarkup ? { reply_markup: newMarkup } : undefined);
   } catch (err) {
     if (err instanceof GrammyError && err.description.includes("not modified")) {
       return;

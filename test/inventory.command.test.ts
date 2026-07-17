@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
 import type { InlineKeyboardMarkup } from "grammy/types";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { Config } from "../src/config.js";
 import { products, stockLots } from "../src/db/schema.js";
 import { createTestHarness, type TestHarness } from "./support/harness.js";
@@ -129,9 +129,6 @@ describe("/inventory", () => {
     expect(milk?.status).toBe("finished");
 
     const answers = harness.calls.filter((c) => c.method === "answerCallbackQuery");
-    expect(answers.map((c) => c.payload.text)).toEqual([
-      "Marked finished",
-      "Already finished",
-    ]);
+    expect(answers.map((c) => c.payload.text)).toEqual(["Marked finished", "Already finished"]);
   });
 });

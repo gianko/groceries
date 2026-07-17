@@ -22,28 +22,23 @@ describe("loadConfig", () => {
     });
   });
 
-  it.each([
-    "TELEGRAM_BOT_TOKEN",
-    "GEMINI_API_KEY",
-    "ALLOWED_USER_IDS",
-    "GROUP_CHAT_ID",
-    "TZ",
-  ])("fails fast when %s is missing", (key) => {
-    const env = { ...validEnv };
-    delete (env as Record<string, string | undefined>)[key];
+  it.each(["TELEGRAM_BOT_TOKEN", "GEMINI_API_KEY", "ALLOWED_USER_IDS", "GROUP_CHAT_ID", "TZ"])(
+    "fails fast when %s is missing",
+    (key) => {
+      const env = { ...validEnv };
+      delete (env as Record<string, string | undefined>)[key];
 
-    expect(() => loadConfig(env)).toThrowError(new RegExp(key));
-  });
+      expect(() => loadConfig(env)).toThrowError(new RegExp(key));
+    },
+  );
 
   it("rejects a non-numeric entry in ALLOWED_USER_IDS", () => {
-    expect(() =>
-      loadConfig({ ...validEnv, ALLOWED_USER_IDS: "111,not-a-number" }),
-    ).toThrowError(/ALLOWED_USER_IDS/);
+    expect(() => loadConfig({ ...validEnv, ALLOWED_USER_IDS: "111,not-a-number" })).toThrowError(
+      /ALLOWED_USER_IDS/,
+    );
   });
 
   it("rejects a non-numeric GROUP_CHAT_ID", () => {
-    expect(() =>
-      loadConfig({ ...validEnv, GROUP_CHAT_ID: "nope" }),
-    ).toThrowError(/GROUP_CHAT_ID/);
+    expect(() => loadConfig({ ...validEnv, GROUP_CHAT_ID: "nope" })).toThrowError(/GROUP_CHAT_ID/);
   });
 });
