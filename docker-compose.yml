@@ -1,0 +1,28 @@
+# Pantry Bot's service definition for the household Pi's OMV Compose plugin
+# stack. CHANGE_TO_COMPOSE_DATA_PATH is OMV's own placeholder — the Compose
+# plugin substitutes it with this project's per-stack data folder when the
+# stack is created/edited through its GUI.
+services:
+  pantry-bot:
+    build:
+      context: .
+      # arm64 is the only target that matters on the Pi; buildx handles the
+      # cross-build when developing on another architecture.
+      platforms:
+        - linux/arm64
+    image: pantry-bot:latest
+    container_name: pantry-bot
+    environment:
+      - TZ=Europe/Dublin
+      - DB_PATH=/data/pantry.db
+      - HEARTBEAT_PATH=/data/heartbeat
+      - SNAPSHOT_PATH=/data/pantry.snapshot.db
+    env_file:
+      - .env
+    volumes:
+      # Bind mount, not a named volume, so the existing OMV backup routine
+      # can see the snapshot file directly on the host filesystem.
+      - CHANGE_TO_COMPOSE_DATA_PATH/data:/data
+    # No exposed ports: the bot only makes outbound calls (Telegram, Gemini)
+    # via long polling, per ADR 0003.
+    restart: unless-stopped

@@ -15,6 +15,12 @@ const config: Config = {
   allowedUserIds: [ALLOWED_USER_A, ALLOWED_USER_B],
   groupChatId: GROUP_CHAT_ID,
   tz: "Europe/Dublin",
+  dbPath: ":memory:",
+  heartbeatPath: "heartbeat",
+  heartbeatIntervalMs: 30_000,
+  heartbeatStaleMs: 90_000,
+  snapshotPath: "pantry.snapshot.db",
+  snapshotCron: "0 3 * * *",
 };
 
 describe("bot auth middleware", () => {

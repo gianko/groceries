@@ -19,6 +19,33 @@ describe("loadConfig", () => {
       allowedUserIds: [111, 222],
       groupChatId: -1001234567890,
       tz: "Europe/Dublin",
+      dbPath: "pantry.db",
+      heartbeatPath: "heartbeat",
+      heartbeatIntervalMs: 30_000,
+      heartbeatStaleMs: 90_000,
+      snapshotPath: "pantry.snapshot.db",
+      snapshotCron: "0 3 * * *",
+    });
+  });
+
+  it("honors ops env overrides when present", () => {
+    const config = loadConfig({
+      ...validEnv,
+      DB_PATH: "/data/pantry.db",
+      HEARTBEAT_PATH: "/data/heartbeat",
+      HEARTBEAT_INTERVAL_MS: "15000",
+      HEARTBEAT_STALE_MS: "45000",
+      SNAPSHOT_PATH: "/data/pantry.snapshot.db",
+      SNAPSHOT_CRON: "30 2 * * *",
+    });
+
+    expect(config).toMatchObject({
+      dbPath: "/data/pantry.db",
+      heartbeatPath: "/data/heartbeat",
+      heartbeatIntervalMs: 15_000,
+      heartbeatStaleMs: 45_000,
+      snapshotPath: "/data/pantry.snapshot.db",
+      snapshotCron: "30 2 * * *",
     });
   });
 
