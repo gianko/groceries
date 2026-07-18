@@ -381,6 +381,7 @@ export function createBot(
       });
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
+        console.error("Brain unavailable", err.cause ?? err);
         await ctx.reply(BUSY_MESSAGE);
         return;
       }
@@ -544,7 +545,8 @@ export function createBot(
     let photo: Buffer;
     try {
       photo = await downloadPhoto(ctx);
-    } catch {
+    } catch (err) {
+      console.error("Photo download failed", err);
       await ctx.reply(BUSY_MESSAGE);
       return;
     }
@@ -554,6 +556,7 @@ export function createBot(
       extraction = await brain.extractReceipt(photo, fetchCatalogNames(db));
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
+        console.error("Brain unavailable", err.cause ?? err);
         await ctx.reply(BUSY_MESSAGE);
         return;
       }
@@ -579,6 +582,7 @@ export function createBot(
       result = await confirmReceipt(db, brain, clock, claim.pending.extraction);
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
+        console.error("Brain unavailable", err.cause ?? err);
         // Nothing was written (confirmReceipt only writes after the Brain
         // call succeeds), so release the claim: the keyboard stays up and a
         // retry tap gets a fresh shot instead of a permanent "Already handled".
@@ -643,6 +647,7 @@ export function createBot(
       extraction = await brain.parseFreeTextItems(text, fetchCatalogNames(db));
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
+        console.error("Brain unavailable", err.cause ?? err);
         await ctx.reply(BUSY_MESSAGE);
         return;
       }
@@ -666,6 +671,7 @@ export function createBot(
       await confirmAddItems(db, brain, clock, claim.pending.extraction);
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
+        console.error("Brain unavailable", err.cause ?? err);
         // Nothing was written (confirmAddItems only writes after the Brain
         // call succeeds), so release the claim for a retry, same as the
         // receipt confirm flow.
@@ -761,6 +767,7 @@ export function createBot(
       } catch (err) {
         pendingAdd.claimed = false;
         if (err instanceof BrainUnavailableError) {
+          console.error("Brain unavailable", err.cause ?? err);
           await ctx.reply(BUSY_MESSAGE);
           return;
         }
@@ -801,6 +808,7 @@ export function createBot(
     } catch (err) {
       pending.claimed = false;
       if (err instanceof BrainUnavailableError) {
+        console.error("Brain unavailable", err.cause ?? err);
         await ctx.reply(BUSY_MESSAGE);
         return;
       }
