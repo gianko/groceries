@@ -346,7 +346,7 @@ describe("receipt happy path", () => {
     const editAnswer = harness.calls.find(
       (c) => c.method === "answerCallbackQuery" && c.payload.text !== undefined,
     );
-    expect(editAnswer!.payload.text).toContain("coming soon");
+    expect(editAnswer!.payload.text).toContain("Reply to this message");
 
     harness.brain.scriptEstimateShelfLife(ok([{ name: "baked beans", days: 400 }]));
     await harness.handleUpdate(
@@ -367,5 +367,243 @@ describe("receipt happy path", () => {
       textMessageUpdate({ userId: ALLOWED_USER_A, chatId: GROUP_CHAT_ID, text: "hello" }),
     );
     expect(harness.calls).toEqual([]);
+  });
+});
+
+describe("receipt correction loop", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    harness = createTestHarness(config);
+  });
+
+  const revisedExtraction = {
+    lines: [
+      {
+        rawName: "T.FIN B/BEANS 420G",
+        name: "chopped tomatoes",
+        category: "food" as const,
+        quantity: 1,
+        unit: "g",
+        price: 1.5,
+      },
+    ],
+  };
+
+  it("re-shows a revised list with the same keyboard after a free-text reply to the receipt message", async () => {
+    harness.brain.scriptExtractReceipt(ok(sampleExtraction));
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+    const { messageId } = findConfirmMarkup(harness);
+
+    harness.brain.scriptReviseReceipt(ok(revisedExtraction));
+    await harness.handleUpdate(
+      textMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        text: "it's chopped tomatoes, not baked beans",
+        replyToBotMessageId: messageId,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+
+    const reviseCall = harness.brain.calls.find((c) => c.method === "reviseReceipt");
+    expect(reviseCall!.args[0]).toEqual(sampleExtraction);
+    expect(reviseCall!.args[1]).toBe("it's chopped tomatoes, not baked beans");
+
+    const editCall = harness.calls.find((c) => c.method === "editMessageText");
+    expect(editCall).toBeDefined();
+    expect(editCall!.payload.text).toContain("chopped tomatoes");
+    const markup = editCall!.payload.reply_markup as InlineKeyboardMarkup;
+    expect(markup.inline_keyboard.flat().map((b) => b.text)).toEqual([
+      "✅ Confirm",
+      "✏️ Edit",
+      "❌ Discard",
+    ]);
+  });
+
+  it("stores the revised lines, not the originals, when confirmed after a correction", async () => {
+    harness.brain.scriptExtractReceipt(ok(sampleExtraction));
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+    const { messageId, markup } = findConfirmMarkup(harness);
+
+    harness.brain.scriptReviseReceipt(ok(revisedExtraction));
+    await harness.handleUpdate(
+      textMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        text: "it's chopped tomatoes",
+        replyToBotMessageId: messageId,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+
+    harness.brain.scriptEstimateShelfLife(ok([{ name: "chopped tomatoes", days: 5 }]));
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "receipt:confirm",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const storedProducts = harness.db.select().from(products).all();
+    expect(storedProducts).toHaveLength(1);
+    expect(storedProducts[0]!.name).toBe("chopped tomatoes");
+  });
+
+  it("supports multiple correction rounds on the same message", async () => {
+    harness.brain.scriptExtractReceipt(ok(sampleExtraction));
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+    const { messageId, markup } = findConfirmMarkup(harness);
+
+    harness.brain.scriptReviseReceipt(ok(revisedExtraction));
+    await harness.handleUpdate(
+      textMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        text: "it's chopped tomatoes",
+        replyToBotMessageId: messageId,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+
+    const thirdExtraction = {
+      lines: [{ ...revisedExtraction.lines[0]!, quantity: 2 }],
+    };
+    harness.brain.scriptReviseReceipt(ok(thirdExtraction));
+    await harness.handleUpdate(
+      textMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        text: "actually there were two",
+        replyToBotMessageId: messageId,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+
+    harness.brain.scriptEstimateShelfLife(ok([{ name: "chopped tomatoes", days: 5 }]));
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "receipt:confirm",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const storedLots = harness.db.select().from(stockLots).all();
+    expect(storedLots).toHaveLength(1);
+    expect(storedLots[0]!.quantity).toBe(2);
+  });
+
+  it("ignores a free-text reply to a non-bot message, even if it names a pending receipt's message id", async () => {
+    harness.brain.scriptExtractReceipt(ok(sampleExtraction));
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+    const { messageId } = findConfirmMarkup(harness);
+
+    await harness.handleUpdate(
+      textMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        text: "it's chopped tomatoes",
+        replyToUserMessageId: messageId,
+      }),
+    );
+
+    expect(harness.brain.calls.find((c) => c.method === "reviseReceipt")).toBeUndefined();
+    expect(harness.calls.find((c) => c.method === "editMessageText")).toBeUndefined();
+  });
+
+  it("ignores a free-text reply to a message that is not a pending receipt", async () => {
+    await harness.handleUpdate(
+      textMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        text: "random reply",
+        replyToBotMessageId: 999,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+
+    expect(harness.calls).toEqual([]);
+    expect(harness.brain.calls).toEqual([]);
+  });
+
+  it("shows the busy message and keeps the original list when revision fails", async () => {
+    harness.brain.scriptExtractReceipt(ok(sampleExtraction));
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+    const { messageId, markup } = findConfirmMarkup(harness);
+
+    harness.brain.scriptReviseReceipt(fail(new BrainUnavailableError("nope")));
+    await harness.handleUpdate(
+      textMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        text: "it's chopped tomatoes",
+        replyToBotMessageId: messageId,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+
+    const replies = harness.calls.filter((c) => c.method === "sendMessage");
+    expect(replies.at(-1)!.payload.text).toBe("🧠 busy, try again in a minute");
+    expect(harness.calls.find((c) => c.method === "editMessageText")).toBeUndefined();
+
+    harness.brain.scriptEstimateShelfLife(ok([{ name: "baked beans", days: 400 }]));
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "receipt:confirm",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const storedProducts = harness.db.select().from(products).all();
+    expect(storedProducts[0]!.name).toBe("baked beans");
   });
 });

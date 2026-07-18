@@ -4,12 +4,41 @@ let nextUpdateId = 1;
 let nextMessageId = 1;
 let nextCallbackQueryId = 1;
 
+function botReplyToMessage(
+  chat: Chat,
+  replyToBotMessageId: number | undefined,
+  botUserId: number | undefined,
+): Message["reply_to_message"] {
+  if (replyToBotMessageId === undefined) {
+    return undefined;
+  }
+  return {
+    message_id: replyToBotMessageId,
+    date: Math.floor(Date.now() / 1000),
+    chat,
+    from: {
+      id: botUserId ?? 1,
+      is_bot: true,
+      first_name: "Pantry Bot",
+      username: "pantry_bot",
+    },
+    text: "🧾 Parsed receipt:",
+    reply_to_message: undefined,
+  };
+}
+
 export interface TextMessageOptions {
   userId: number;
   chatId: number;
   text: string;
   chatType?: "group" | "supergroup" | "private";
   username?: string;
+  replyToBotMessageId?: number;
+  botUserId?: number;
+  // A reply to another human's message, as opposed to replyToBotMessageId —
+  // exercises the privacy-mode boundary (the bot only acts on replies to
+  // itself).
+  replyToUserMessageId?: number;
 }
 
 export function textMessageUpdate(options: TextMessageOptions): Update {
@@ -40,6 +69,18 @@ export function textMessageUpdate(options: TextMessageOptions): Update {
       entities: options.text.startsWith("/")
         ? [{ type: "bot_command", offset: 0, length: options.text.split(" ")[0]!.length }]
         : undefined,
+      reply_to_message:
+        botReplyToMessage(chat, options.replyToBotMessageId, options.botUserId) ??
+        (options.replyToUserMessageId !== undefined
+          ? {
+              message_id: options.replyToUserMessageId,
+              date: Math.floor(Date.now() / 1000),
+              chat,
+              from: { id: 333, is_bot: false, first_name: "Other", username: "other_user" },
+              text: "some other message",
+              reply_to_message: undefined,
+            }
+          : undefined),
     },
   };
 }
@@ -68,23 +109,6 @@ export function photoMessageUpdate(options: PhotoMessageOptions): Update {
 
   const chat: Chat = { id: options.chatId, type: "group", title: "Household" };
 
-  const replyToMessage: Message["reply_to_message"] =
-    options.replyToBotMessageId !== undefined
-      ? {
-          message_id: options.replyToBotMessageId,
-          date: Math.floor(Date.now() / 1000),
-          chat,
-          from: {
-            id: options.botUserId ?? 1,
-            is_bot: true,
-            first_name: "Pantry Bot",
-            username: "pantry_bot",
-          },
-          text: "🧾 Parsed receipt:",
-          reply_to_message: undefined,
-        }
-      : undefined;
-
   return {
     update_id: nextUpdateId++,
     message: {
@@ -94,7 +118,7 @@ export function photoMessageUpdate(options: PhotoMessageOptions): Update {
       from,
       photo: fakePhotoSizes,
       caption: options.caption,
-      reply_to_message: replyToMessage,
+      reply_to_message: botReplyToMessage(chat, options.replyToBotMessageId, options.botUserId),
     },
   };
 }

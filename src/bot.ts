@@ -119,11 +119,9 @@ export function createBot(
       throw err;
     }
 
-    const keyboard = new InlineKeyboard()
-      .text("✅ Confirm", RECEIPT_CONFIRM)
-      .text("✏️ Edit", RECEIPT_EDIT)
-      .text("❌ Discard", RECEIPT_DISCARD);
-    const sent = await ctx.reply(renderReceiptPreview(extraction), { reply_markup: keyboard });
+    const sent = await ctx.reply(renderReceiptPreview(extraction), {
+      reply_markup: buildReceiptKeyboard(),
+    });
     pendingReceipts.set(sent.message_id, { extraction, photo, claimed: false });
   });
 
@@ -173,10 +171,47 @@ export function createBot(
       return;
     }
 
-    // The correction flow (reply with a plain-language fix) ships separately;
-    // this button only acknowledges for now and leaves the pending receipt
-    // (and its photo) in place, unclaimed, so that flow can pick it up.
-    await ctx.answerCallbackQuery("Reply with what to fix — coming soon");
+    // Leaves the pending receipt (and its photo) in place, unclaimed: the
+    // reply-to-this-message handler below is what actually revises it.
+    await ctx.answerCallbackQuery("Reply to this message with what to fix");
+  });
+
+  bot.on("message:text", async (ctx) => {
+    const replyToMessageId = ctx.message.reply_to_message?.message_id;
+    const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
+    if (!isReplyToBot || replyToMessageId === undefined) {
+      return;
+    }
+
+    const pending = pendingReceipts.get(replyToMessageId);
+    if (!pending || pending.claimed) {
+      return;
+    }
+
+    // Claimed for the duration of the revision so a racing confirm/discard
+    // tap can't act on a photo/extraction pair that's mid-revision, then
+    // released either way so the next round of the loop (or a final
+    // confirm/discard) can proceed on the same message id.
+    pending.claimed = true;
+
+    let revised: ReceiptExtraction;
+    try {
+      revised = await brain.reviseReceipt(pending.extraction, ctx.message.text, pending.photo);
+    } catch (err) {
+      pending.claimed = false;
+      if (err instanceof BrainUnavailableError) {
+        await ctx.reply(BUSY_MESSAGE);
+        return;
+      }
+      throw err;
+    }
+
+    pending.extraction = revised;
+    pending.claimed = false;
+
+    await ctx.api.editMessageText(ctx.chat.id, replyToMessageId, renderReceiptPreview(revised), {
+      reply_markup: buildReceiptKeyboard(),
+    });
   });
 
   return bot;
@@ -223,6 +258,13 @@ function createDefaultPhotoDownloader(token: string): PhotoDownloader {
     }
     return Buffer.from(await res.arrayBuffer());
   };
+}
+
+function buildReceiptKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✅ Confirm", RECEIPT_CONFIRM)
+    .text("✏️ Edit", RECEIPT_EDIT)
+    .text("❌ Discard", RECEIPT_DISCARD);
 }
 
 function buildFinishKeyboard(lotIds: number[]): InlineKeyboard | undefined {
