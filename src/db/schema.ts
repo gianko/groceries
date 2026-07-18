@@ -28,6 +28,9 @@ export const stockLots = sqliteTable("stock_lots", {
     .default("in_stock"),
 });
 
+// Status only flips done on a human-confirmed action (receipt reconciliation,
+// a tap) — never a text match — per ADR-0002. Open entries are what /list
+// shows; done entries drop off but stay in the table as history.
 export const shoppingListEntries = sqliteTable("shopping_list_entries", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   source: text("source", {
@@ -35,6 +38,9 @@ export const shoppingListEntries = sqliteTable("shopping_list_entries", {
   }).notNull(),
   productId: integer("product_id").references(() => products.id),
   freeText: text("free_text"),
+  status: text("status", { enum: ["open", "done"] })
+    .notNull()
+    .default("open"),
   createdAt: text("created_at").notNull(),
 });
 

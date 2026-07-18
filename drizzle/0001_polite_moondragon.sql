@@ -1,0 +1,1 @@
+ALTER TABLE `shopping_list_entries` ADD `status` text DEFAULT 'open' NOT NULL;

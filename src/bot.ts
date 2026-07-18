@@ -6,6 +6,7 @@ import type { Config } from "./config.js";
 import type { Db } from "./db.js";
 import { finishLot } from "./finish.js";
 import { fetchInStockLots, renderInventory } from "./inventory.js";
+import { addManualEntry, fetchOpenEntries, renderList } from "./list.js";
 import { fetchPrefs, parsePrefsEdit, renderPrefs, savePrefs } from "./prefs.js";
 import {
   applyKnownRawNames,
@@ -95,6 +96,15 @@ export function createBot(
       const keyboard = buildFinishKeyboard(chunk.lotIds);
       await ctx.reply(chunk.text, keyboard ? { reply_markup: keyboard } : undefined);
     }
+  });
+
+  bot.command("list", async (ctx) => {
+    const text = ctx.match.trim();
+    if (text.length > 0) {
+      addManualEntry(db, clock, text);
+    }
+
+    await ctx.reply(renderList(fetchOpenEntries(db)));
   });
 
   bot.command("prefs", async (ctx) => {
