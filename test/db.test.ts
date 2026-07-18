@@ -17,6 +17,7 @@ describe("createDb", () => {
       category: "food",
       isStaple: false,
       autoRelist: false,
+      autoRelistAsked: false,
     });
 
     const [lot] = db

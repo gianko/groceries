@@ -1,0 +1,1 @@
+ALTER TABLE `products` ADD `auto_relist_asked` integer DEFAULT false NOT NULL;

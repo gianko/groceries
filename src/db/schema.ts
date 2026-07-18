@@ -8,6 +8,11 @@ export const products = sqliteTable("products", {
   category: text("category", { enum: ["food", "household"] }).notNull(),
   isStaple: integer("is_staple", { mode: "boolean" }).notNull().default(false),
   autoRelist: integer("auto_relist", { mode: "boolean" }).notNull().default(false),
+  // Flips true the first time the household answers the Finish-Confirmation
+  // flow's "always re-add this?" offer (yes or no) — the offer only ever
+  // appears while this is false, so a "no" sticks just as permanently as a
+  // "yes" (which also sets autoRelist).
+  autoRelistAsked: integer("auto_relist_asked", { mode: "boolean" }).notNull().default(false),
   shelfLifeDays: integer("shelf_life_days"),
 });
 

@@ -27,7 +27,7 @@ import {
   tierRecipes,
 } from "./cook.js";
 import type { Db } from "./db.js";
-import { finishLot } from "./finish.js";
+import { decideAutoRelist, finishLot } from "./finish.js";
 import { fetchInStockLots, renderInventory } from "./inventory.js";
 import { addManualEntry, fetchOpenEntries, renderList, type ShoppingListEntry } from "./list.js";
 import { fetchPrefs, parsePrefsEdit, renderPrefs, savePrefs } from "./prefs.js";
@@ -46,6 +46,7 @@ import {
   fetchExpiringLots,
   renderShoppingSummary,
 } from "./shopping.js";
+import { setStaple } from "./staple.js";
 
 const FINISH_PREFIX = "finish:";
 const FINISH_CALLBACK = new RegExp(`^${FINISH_PREFIX}(\\d+)$`);
@@ -70,6 +71,9 @@ const RECONCILE_KEEP_PREFIX = "reconcile:keep:";
 const RECONCILE_KEEP_CALLBACK = new RegExp(`^${RECONCILE_KEEP_PREFIX}(\\d+)$`);
 const RECONCILE_CLEAR_PREFIX = "reconcile:clear:";
 const RECONCILE_CLEAR_CALLBACK = new RegExp(`^${RECONCILE_CLEAR_PREFIX}(\\d+)$`);
+
+const RELIST_PREFIX = "relist:";
+const RELIST_CALLBACK = new RegExp(`^${RELIST_PREFIX}(yes|no):(\\d+)$`);
 
 const BUSY_MESSAGE = "🧠 busy, try again in a minute";
 const RECEIPT_CAPTION = /^\/receipt(@\S+)?\b/;
@@ -100,6 +104,10 @@ function reconcileKeepCallbackData(entryId: number): string {
 
 function reconcileClearCallbackData(entryId: number): string {
   return `${RECONCILE_CLEAR_PREFIX}${entryId}`;
+}
+
+function relistCallbackData(answer: "yes" | "no", productId: number): string {
+  return `${RELIST_PREFIX}${answer}:${productId}`;
 }
 
 export type PhotoDownloader = (ctx: Context) => Promise<Buffer>;
@@ -224,6 +232,17 @@ export function createBot(
     }
 
     await ctx.reply(renderList(fetchOpenEntries(db)));
+  });
+
+  bot.command("staple", async (ctx) => {
+    const name = ctx.match.trim();
+    if (name.length === 0) {
+      await ctx.reply("Usage: /staple <name>");
+      return;
+    }
+
+    const result = setStaple(db, name);
+    await ctx.reply(`📌 ${result.productName} is now a staple.`);
   });
 
   bot.command("shopping", async (ctx) => {
@@ -411,10 +430,28 @@ export function createBot(
 
   bot.callbackQuery(FINISH_CALLBACK, async (ctx) => {
     const lotId = Number(ctx.match[1]);
-    const didFinish = finishLot(db, lotId);
+    const result = finishLot(db, clock, lotId);
 
-    await ctx.answerCallbackQuery(didFinish ? "Marked finished" : "Already finished");
+    await ctx.answerCallbackQuery(result.finished ? "Marked finished" : "Already finished");
     await removeCallbackButtons(ctx, [finishCallbackData(lotId)]);
+
+    if (result.offerAutoRelist && result.productId !== null) {
+      await ctx.reply(`🔁 Always re-add ${result.productName} once it's finished?`, {
+        reply_markup: buildRelistKeyboard(result.productId),
+      });
+    }
+  });
+
+  bot.callbackQuery(RELIST_CALLBACK, async (ctx) => {
+    const answer = ctx.match[1] === "yes" ? "yes" : "no";
+    const productId = Number(ctx.match[2]);
+    const didDecide = decideAutoRelist(db, productId, answer === "yes");
+
+    await ctx.answerCallbackQuery(didDecide ? "Got it" : "Already answered");
+    await removeCallbackButtons(ctx, [
+      relistCallbackData("yes", productId),
+      relistCallbackData("no", productId),
+    ]);
   });
 
   bot.on("message:photo", async (ctx) => {
@@ -695,6 +732,12 @@ function buildFinishKeyboard(lotIds: number[]): InlineKeyboard | undefined {
   }
 
   return addFinishRows(new InlineKeyboard(), lotIds);
+}
+
+function buildRelistKeyboard(productId: number): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Yes", relistCallbackData("yes", productId))
+    .text("No", relistCallbackData("no", productId));
 }
 
 // Always carries the 👍/👎 rating prompt, plus a Finish row per Lot the
