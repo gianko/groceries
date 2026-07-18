@@ -19,10 +19,12 @@
     "postinstall": "lefthook install"
   },
   "dependencies": {
+    "@google/genai": "^2.12.0",
     "better-sqlite3": "^11.10.0",
     "drizzle-orm": "^0.45.2",
     "grammy": "^1.32.0",
-    "node-cron": "^4.6.0"
+    "node-cron": "^4.6.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",

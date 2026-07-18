@@ -1,4 +1,4 @@
-import type { Chat, InlineKeyboardMarkup, Message, Update, User } from "grammy/types";
+import type { Chat, InlineKeyboardMarkup, Message, PhotoSize, Update, User } from "grammy/types";
 
 let nextUpdateId = 1;
 let nextMessageId = 1;
@@ -40,6 +40,61 @@ export function textMessageUpdate(options: TextMessageOptions): Update {
       entities: options.text.startsWith("/")
         ? [{ type: "bot_command", offset: 0, length: options.text.split(" ")[0]!.length }]
         : undefined,
+    },
+  };
+}
+
+export interface PhotoMessageOptions {
+  userId: number;
+  chatId: number;
+  caption?: string;
+  replyToBotMessageId?: number;
+  botUserId?: number;
+  username?: string;
+}
+
+const fakePhotoSizes: PhotoSize[] = [
+  { file_id: "small-file-id", file_unique_id: "small-unique", width: 90, height: 90 },
+  { file_id: "large-file-id", file_unique_id: "large-unique", width: 1280, height: 1280 },
+];
+
+export function photoMessageUpdate(options: PhotoMessageOptions): Update {
+  const from: User = {
+    id: options.userId,
+    is_bot: false,
+    first_name: "Test",
+    username: options.username ?? "test_user",
+  };
+
+  const chat: Chat = { id: options.chatId, type: "group", title: "Household" };
+
+  const replyToMessage: Message["reply_to_message"] =
+    options.replyToBotMessageId !== undefined
+      ? {
+          message_id: options.replyToBotMessageId,
+          date: Math.floor(Date.now() / 1000),
+          chat,
+          from: {
+            id: options.botUserId ?? 1,
+            is_bot: true,
+            first_name: "Pantry Bot",
+            username: "pantry_bot",
+          },
+          text: "🧾 Parsed receipt:",
+          reply_to_message: undefined,
+        }
+      : undefined;
+
+  return {
+    update_id: nextUpdateId++,
+    message: {
+      message_id: nextMessageId++,
+      date: Math.floor(Date.now() / 1000),
+      chat,
+      from,
+      photo: fakePhotoSizes,
+      caption: options.caption,
+      reply_to_message: replyToMessage,
     },
   };
 }

@@ -1,0 +1,87 @@
+import type {
+  Brain,
+  ReceiptExtraction,
+  RecipeContext,
+  RecipeSuggestion,
+  ShelfLifeEstimate,
+} from "../../src/brain.js";
+
+export interface BrainCall {
+  method: keyof Brain;
+  args: unknown[];
+}
+
+// A scripted Brain: each method is a queue of canned results (value or
+// thrown error) consumed in call order, so a test can script exactly what
+// the "LLM" returns/fails on for each successive call. Calling past the end
+// of a queue reuses the last scripted entry, so single-entry scripts work
+// for tests that don't care how many times a method is called.
+export class BrainFake implements Brain {
+  calls: BrainCall[] = [];
+
+  private extractReceiptQueue: ScriptedResult<ReceiptExtraction>[] = [];
+  private reviseReceiptQueue: ScriptedResult<ReceiptExtraction>[] = [];
+  private suggestRecipesQueue: ScriptedResult<RecipeSuggestion[]>[] = [];
+  private estimateShelfLifeQueue: ScriptedResult<ShelfLifeEstimate[]>[] = [];
+
+  scriptExtractReceipt(...results: ScriptedResult<ReceiptExtraction>[]): void {
+    this.extractReceiptQueue = results;
+  }
+
+  scriptReviseReceipt(...results: ScriptedResult<ReceiptExtraction>[]): void {
+    this.reviseReceiptQueue = results;
+  }
+
+  scriptSuggestRecipes(...results: ScriptedResult<RecipeSuggestion[]>[]): void {
+    this.suggestRecipesQueue = results;
+  }
+
+  scriptEstimateShelfLife(...results: ScriptedResult<ShelfLifeEstimate[]>[]): void {
+    this.estimateShelfLifeQueue = results;
+  }
+
+  async extractReceipt(photo: Buffer): Promise<ReceiptExtraction> {
+    this.calls.push({ method: "extractReceipt", args: [photo] });
+    return consume(this.extractReceiptQueue);
+  }
+
+  async reviseReceipt(
+    current: ReceiptExtraction,
+    correction: string,
+    photo: Buffer,
+  ): Promise<ReceiptExtraction> {
+    this.calls.push({ method: "reviseReceipt", args: [current, correction, photo] });
+    return consume(this.reviseReceiptQueue);
+  }
+
+  async suggestRecipes(input: RecipeContext): Promise<RecipeSuggestion[]> {
+    this.calls.push({ method: "suggestRecipes", args: [input] });
+    return consume(this.suggestRecipesQueue);
+  }
+
+  async estimateShelfLife(productNames: string[]): Promise<ShelfLifeEstimate[]> {
+    this.calls.push({ method: "estimateShelfLife", args: [productNames] });
+    return consume(this.estimateShelfLifeQueue);
+  }
+}
+
+type ScriptedResult<T> = { value: T } | { error: unknown };
+
+function consume<T>(queue: ScriptedResult<T>[]): T | Promise<never> {
+  if (queue.length === 0) {
+    throw new Error("BrainFake: no scripted result queued for this call");
+  }
+  const result = queue.length > 1 ? queue.shift()! : queue[0]!;
+  if ("error" in result) {
+    return Promise.reject(result.error);
+  }
+  return result.value;
+}
+
+export function ok<T>(value: T): ScriptedResult<T> {
+  return { value };
+}
+
+export function fail<T>(error: unknown): ScriptedResult<T> {
+  return { error };
+}
