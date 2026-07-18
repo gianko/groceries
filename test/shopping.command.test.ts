@@ -22,6 +22,7 @@ const config: Config = {
   heartbeatStaleMs: 90_000,
   snapshotPath: "pantry.snapshot.db",
   snapshotCron: "0 3 * * *",
+  digestCron: "0 17 * * *",
 };
 
 function insertProductWithLots(

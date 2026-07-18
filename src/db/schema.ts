@@ -97,6 +97,20 @@ export const recipes = sqliteTable("recipes", {
   createdAt: text("created_at").notNull(),
 });
 
+// Presence marks a just-expired Lot as already having its one-time
+// gone/still-good verdict outstanding: the Expiry Digest cron inserts a row
+// the day it asks, and the row is deleted the moment the verdict is answered
+// (finished, or est_expiry pushed out) — never resurfacing the same prompt.
+// This is interaction bookkeeping, not Stock Lot state, so the digest cron
+// writing it doesn't violate ADR-0002; a lot that stays here because its
+// verdict was ignored simply keeps degrading out of recipe suggestions.
+export const expiryVerdicts = sqliteTable("expiry_verdicts", {
+  lotId: integer("lot_id")
+    .primaryKey()
+    .references(() => stockLots.id),
+  createdAt: text("created_at").notNull(),
+});
+
 export const schema = {
   products,
   stockLots,
@@ -105,4 +119,5 @@ export const schema = {
   prefs,
   pendings,
   recipes,
+  expiryVerdicts,
 };

@@ -1,5 +1,6 @@
 import { Bot, type BotConfig, type Context, GrammyError, InlineKeyboard } from "grammy";
 import type { InlineKeyboardMarkup } from "grammy/types";
+import cron from "node-cron";
 import {
   type Brain,
   BrainUnavailableError,
@@ -27,6 +28,16 @@ import {
   tierRecipes,
 } from "./cook.js";
 import type { Db } from "./db.js";
+import {
+  type DigestLot,
+  digestQualifies,
+  fetchExpiringSoonLots,
+  fetchJustExpiredLots,
+  markLotGone,
+  markLotStillGood,
+  markVerdictsAsked,
+  renderExpiryDigest,
+} from "./digest.js";
 import { decideAutoRelist, finishLot } from "./finish.js";
 import { fetchInStockLots, renderInventory } from "./inventory.js";
 import { addManualEntry, fetchOpenEntries, renderList, type ShoppingListEntry } from "./list.js";
@@ -75,6 +86,12 @@ const RECONCILE_CLEAR_CALLBACK = new RegExp(`^${RECONCILE_CLEAR_PREFIX}(\\d+)$`)
 const RELIST_PREFIX = "relist:";
 const RELIST_CALLBACK = new RegExp(`^${RELIST_PREFIX}(yes|no):(\\d+)$`);
 
+const DIGEST_GONE_PREFIX = "digest:gone:";
+const DIGEST_GONE_CALLBACK = new RegExp(`^${DIGEST_GONE_PREFIX}(\\d+)$`);
+const DIGEST_STILL_GOOD_PREFIX = "digest:still:";
+const DIGEST_STILL_GOOD_CALLBACK = new RegExp(`^${DIGEST_STILL_GOOD_PREFIX}(\\d+)$`);
+const DIGEST_COOK_IDEAS = "digest:cook";
+
 const BUSY_MESSAGE = "🧠 busy, try again in a minute";
 const RECEIPT_CAPTION = /^\/receipt(@\S+)?\b/;
 
@@ -108,6 +125,14 @@ function reconcileClearCallbackData(entryId: number): string {
 
 function relistCallbackData(answer: "yes" | "no", productId: number): string {
   return `${RELIST_PREFIX}${answer}:${productId}`;
+}
+
+function digestGoneCallbackData(lotId: number): string {
+  return `${DIGEST_GONE_PREFIX}${lotId}`;
+}
+
+function digestStillGoodCallbackData(lotId: number): string {
+  return `${DIGEST_STILL_GOOD_PREFIX}${lotId}`;
 }
 
 export type PhotoDownloader = (ctx: Context) => Promise<Buffer>;
@@ -300,7 +325,9 @@ export function createBot(
     ]);
   });
 
-  bot.command("cook", async (ctx) => {
+  // Shared by /cook and the Expiry Digest's "Recipe ideas?" button — both
+  // enter the exact same flow, per the ticket.
+  async function runCookFlow(ctx: Context): Promise<void> {
     const inventory = fetchFoodInventory(db);
     const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
     const stapleNames = fetchStapleNames(db);
@@ -369,6 +396,13 @@ export function createBot(
       });
       pendingCookMissing.set(sent.message_id, { ingredients: missing, claimed: false });
     }
+  }
+
+  bot.command("cook", runCookFlow);
+
+  bot.callbackQuery(DIGEST_COOK_IDEAS, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await runCookFlow(ctx);
   });
 
   bot.callbackQuery(COOK_ADD_MISSING, async (ctx) => {
@@ -451,6 +485,34 @@ export function createBot(
     await removeCallbackButtons(ctx, [
       relistCallbackData("yes", productId),
       relistCallbackData("no", productId),
+    ]);
+  });
+
+  bot.callbackQuery(DIGEST_GONE_CALLBACK, async (ctx) => {
+    const lotId = Number(ctx.match[1]);
+    const result = markLotGone(db, clock, lotId);
+
+    await ctx.answerCallbackQuery(result.finished ? "Marked finished" : "Already handled");
+    await removeCallbackButtons(ctx, [
+      digestGoneCallbackData(lotId),
+      digestStillGoodCallbackData(lotId),
+    ]);
+
+    if (result.offerAutoRelist && result.productId !== null) {
+      await ctx.reply(`🔁 Always re-add ${result.productName} once it's finished?`, {
+        reply_markup: buildRelistKeyboard(result.productId),
+      });
+    }
+  });
+
+  bot.callbackQuery(DIGEST_STILL_GOOD_CALLBACK, async (ctx) => {
+    const lotId = Number(ctx.match[1]);
+    const applied = markLotStillGood(db, clock, lotId);
+
+    await ctx.answerCallbackQuery(applied ? "Pushed out a few days" : "Already handled");
+    await removeCallbackButtons(ctx, [
+      digestGoneCallbackData(lotId),
+      digestStillGoodCallbackData(lotId),
     ]);
   });
 
@@ -738,6 +800,68 @@ function buildRelistKeyboard(productId: number): InlineKeyboard {
   return new InlineKeyboard()
     .text("Yes", relistCallbackData("yes", productId))
     .text("No", relistCallbackData("no", productId));
+}
+
+// One gone/still-good row per just-expired Lot, plus a "Recipe ideas?" row
+// that's always present once the digest qualifies at all (per the ticket,
+// it jumps into /cook regardless of whether any Lot needs a verdict).
+function buildDigestKeyboard(justExpired: DigestLot[]): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const lot of justExpired) {
+    keyboard
+      .text("🗑 Gone", digestGoneCallbackData(lot.lotId))
+      .text("👌 Still good", digestStillGoodCallbackData(lot.lotId))
+      .row();
+  }
+  keyboard.text("🍳 Recipe ideas?", DIGEST_COOK_IDEAS);
+  return keyboard;
+}
+
+async function sendExpiryDigest(bot: Bot, db: Db, clock: Clock, chatId: number): Promise<void> {
+  const expiringSoon = fetchExpiringSoonLots(db, clock);
+  const justExpired = fetchJustExpiredLots(db, clock);
+  if (!digestQualifies(expiringSoon, justExpired)) {
+    return;
+  }
+
+  await bot.api.sendMessage(chatId, renderExpiryDigest(expiringSoon, justExpired), {
+    reply_markup: buildDigestKeyboard(justExpired),
+  });
+
+  // Marked only after the send succeeds: the two writes can't be one
+  // transaction (Telegram isn't transactional with sqlite), so the choice is
+  // between "re-ask a Lot that already went out" and "never ask a Lot whose
+  // send silently failed" if the process dies in between. The latter is
+  // worse — a message never seen has no way to recover — so send first.
+  markVerdictsAsked(
+    db,
+    clock,
+    justExpired.map((lot) => lot.lotId),
+  );
+}
+
+// A cron failure must never crash the bot process, same guarantee as
+// scheduleNightlySnapshot — a missed digest is recoverable tomorrow, but a
+// dead poll loop isn't. No LLM call sits anywhere in this path (per the
+// ticket, the digest itself is LLM-free; the "Recipe ideas?" button is a
+// human tap into a separate flow).
+export function scheduleExpiryDigest(
+  bot: Bot,
+  db: Db,
+  clock: Clock,
+  chatId: number,
+  cronExpression: string,
+  tz: string,
+): ReturnType<typeof cron.schedule> {
+  return cron.schedule(
+    cronExpression,
+    () => {
+      sendExpiryDigest(bot, db, clock, chatId).catch((err) => {
+        console.error("Expiry digest failed", err);
+      });
+    },
+    { timezone: tz },
+  );
 }
 
 // Always carries the 👍/👎 rating prompt, plus a Finish row per Lot the

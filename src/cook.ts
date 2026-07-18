@@ -1,7 +1,7 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { RecipeSuggestion } from "./brain.js";
 import type { Clock } from "./clock.js";
-import { products, recipes, shoppingListEntries, stockLots } from "./db/schema.js";
+import { expiryVerdicts, products, recipes, shoppingListEntries, stockLots } from "./db/schema.js";
 import type { Db } from "./db.js";
 import { compareExpiry } from "./inventory.js";
 
@@ -13,7 +13,11 @@ export interface CookInventoryItem {
 }
 
 // Food only, in stock, soonest-expiring first — the ordering is what makes
-// "weighted toward soonest-expiring Lots" visible in the Brain input.
+// "weighted toward soonest-expiring Lots" visible in the Brain input. A Lot
+// with an outstanding gone/still-good verdict is excluded even though it's
+// still in_stock: an ignored Expiry Digest prompt degrades gracefully by
+// falling out of recipe trust rather than blocking on a human tap (per
+// ADR-0002 and the Expiry Digest ticket).
 export function fetchFoodInventory(db: Db): CookInventoryItem[] {
   const rows = db
     .select({
@@ -25,7 +29,8 @@ export function fetchFoodInventory(db: Db): CookInventoryItem[] {
     })
     .from(stockLots)
     .innerJoin(products, eq(stockLots.productId, products.id))
-    .where(eq(stockLots.status, "in_stock"))
+    .leftJoin(expiryVerdicts, eq(expiryVerdicts.lotId, stockLots.id))
+    .where(and(eq(stockLots.status, "in_stock"), isNull(expiryVerdicts.lotId)))
     .all();
 
   return rows

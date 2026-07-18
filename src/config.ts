@@ -10,6 +10,7 @@ export interface Config {
   heartbeatStaleMs: number;
   snapshotPath: string;
   snapshotCron: string;
+  digestCron: string;
 }
 
 const REQUIRED_KEYS = [
@@ -26,6 +27,7 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 const DEFAULT_HEARTBEAT_STALE_MS = 90_000;
 const DEFAULT_SNAPSHOT_PATH = "pantry.snapshot.db";
 const DEFAULT_SNAPSHOT_CRON = "0 3 * * *";
+const DEFAULT_DIGEST_CRON = "0 17 * * *";
 
 type EnvSource = Record<string, string | undefined>;
 
@@ -56,6 +58,7 @@ export function loadConfig(env: EnvSource = process.env): Config {
     heartbeatStaleMs,
     snapshotPath: env.SNAPSHOT_PATH ?? DEFAULT_SNAPSHOT_PATH,
     snapshotCron: env.SNAPSHOT_CRON ?? DEFAULT_SNAPSHOT_CRON,
+    digestCron: env.DIGEST_CRON ?? DEFAULT_DIGEST_CRON,
   };
 }
 

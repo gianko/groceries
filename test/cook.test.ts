@@ -16,7 +16,13 @@ import {
   saveCookedRecipe,
   tierRecipes,
 } from "../src/cook.js";
-import { products, recipes, shoppingListEntries, stockLots } from "../src/db/schema.js";
+import {
+  expiryVerdicts,
+  products,
+  recipes,
+  shoppingListEntries,
+  stockLots,
+} from "../src/db/schema.js";
 import { createDb, type Db } from "../src/db.js";
 import { FakeClock } from "./support/fakeClock.js";
 
@@ -83,6 +89,31 @@ describe("fetchFoodInventory", () => {
 
     expect(inventory.map((i) => i.name)).toEqual(["milk", "bread"]);
     expect(inventory[0]).toEqual({ name: "milk", quantity: 1, unit: "l", estExpiry: "2026-07-18" });
+  });
+
+  it("excludes an in-stock Lot with an outstanding expiry verdict", () => {
+    const db = createDb();
+    const [yogurt] = db
+      .insert(products)
+      .values({ name: "yogurt", category: "food" })
+      .returning()
+      .all();
+    const [lot] = db
+      .insert(stockLots)
+      .values({
+        productId: yogurt!.id,
+        quantity: 1,
+        purchasedAt: "2026-07-01",
+        estExpiry: "2026-06-30",
+        status: "in_stock",
+      })
+      .returning()
+      .all();
+    db.insert(expiryVerdicts)
+      .values({ lotId: lot!.id, createdAt: "2026-07-01T00:00:00.000Z" })
+      .run();
+
+    expect(fetchFoodInventory(db)).toEqual([]);
   });
 });
 
