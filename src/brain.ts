@@ -42,7 +42,13 @@ export const shelfLifeEstimatesSchema = z.object({
 });
 
 export interface RecipeContext {
-  inventory: { name: string; category: "food" | "household"; estExpiry: string | null }[];
+  inventory: {
+    name: string;
+    category: "food" | "household";
+    quantity: number;
+    unit: string | null;
+    estExpiry: string | null;
+  }[];
   prefsBlurb: string | null;
   favoriteRecipeNames: string[];
 }

@@ -237,10 +237,11 @@ function buildReviseReceiptPrompt(
 
 function buildSuggestRecipesPrompt(input: RecipeContext): string {
   const inventoryLines = input.inventory
-    .map(
-      (item) =>
-        `- ${item.name} (${item.category}${item.estExpiry ? `, exp ${item.estExpiry}` : ""})`,
-    )
+    .map((item) => {
+      const qty = item.unit ? `${item.quantity} ${item.unit}` : `${item.quantity}`;
+      const expiry = item.estExpiry ? `, exp ${item.estExpiry}` : "";
+      return `- ${item.name} — ${qty}${expiry}`;
+    })
     .join("\n");
 
   return [

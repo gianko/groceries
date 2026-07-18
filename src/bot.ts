@@ -1,8 +1,23 @@
 import { Bot, type BotConfig, type Context, GrammyError, InlineKeyboard } from "grammy";
 import type { InlineKeyboardMarkup } from "grammy/types";
-import { type Brain, BrainUnavailableError, type ReceiptExtraction } from "./brain.js";
+import {
+  type Brain,
+  BrainUnavailableError,
+  type ReceiptExtraction,
+  type RecipeSuggestion,
+} from "./brain.js";
 import { type Clock, systemClock } from "./clock.js";
 import type { Config } from "./config.js";
+import {
+  addMissingIngredients,
+  type CookIngredient,
+  fetchFoodInventory,
+  fetchStapleNames,
+  reclassifyRecipe,
+  renderAlmostThereRecipe,
+  renderCookTonight,
+  tierRecipes,
+} from "./cook.js";
 import type { Db } from "./db.js";
 import { finishLot } from "./finish.js";
 import { fetchInStockLots, renderInventory } from "./inventory.js";
@@ -21,6 +36,8 @@ const FINISH_CALLBACK = new RegExp(`^${FINISH_PREFIX}(\\d+)$`);
 const RECEIPT_CONFIRM = "receipt:confirm";
 const RECEIPT_EDIT = "receipt:edit";
 const RECEIPT_DISCARD = "receipt:discard";
+
+const COOK_ADD_MISSING = "cook:addmissing";
 
 const BUSY_MESSAGE = "🧠 busy, try again in a minute";
 const RECEIPT_CAPTION = /^\/receipt(@\S+)?\b/;
@@ -49,6 +66,12 @@ interface PendingReceipt {
   claimed: boolean;
 }
 
+interface PendingCookMissing {
+  ingredients: CookIngredient[];
+  // Same synchronous check-and-set claim as PendingReceipt.claimed.
+  claimed: boolean;
+}
+
 export function createBot(
   config: Config,
   db: Db,
@@ -64,6 +87,13 @@ export function createBot(
   // by the bot's own confirm-keyboard message ID: gone on confirm/discard,
   // and a restart drops everything cleanly (re-send the photo).
   const pendingReceipts = new Map<number, PendingReceipt>();
+
+  // Missing-ingredient lists for Almost-there recipes, keyed by the bot's own
+  // reply message ID — one "add N missing items" decision per message,
+  // exactly the receipt confirm/discard shape. Nothing is written to the
+  // shopping list until the tap (per ADR-0002); a restart drops these
+  // cleanly, same as pendingReceipts.
+  const pendingCookMissing = new Map<number, PendingCookMissing>();
 
   // Message ID of the most recent /prefs reply still open for editing. Only
   // the latest one stays live, so a reply to a stale /prefs message from
@@ -105,6 +135,71 @@ export function createBot(
     }
 
     await ctx.reply(renderList(fetchOpenEntries(db)));
+  });
+
+  bot.command("cook", async (ctx) => {
+    const inventory = fetchFoodInventory(db);
+
+    let suggestions: RecipeSuggestion[];
+    try {
+      suggestions = await brain.suggestRecipes({
+        inventory: inventory.map((item) => ({
+          name: item.name,
+          category: "food",
+          quantity: item.quantity,
+          unit: item.unit,
+          estExpiry: item.estExpiry,
+        })),
+        prefsBlurb: fetchPrefs(db).blurb,
+        favoriteRecipeNames: [],
+      });
+    } catch (err) {
+      if (err instanceof BrainUnavailableError) {
+        await ctx.reply(BUSY_MESSAGE);
+        return;
+      }
+      throw err;
+    }
+
+    const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
+    const stapleNames = fetchStapleNames(db);
+    const classified = suggestions.map((recipe) =>
+      reclassifyRecipe(recipe, inventoryNames, stapleNames),
+    );
+    const { cookTonight, almostThere } = tierRecipes(classified);
+
+    if (cookTonight.length === 0 && almostThere.length === 0) {
+      await ctx.reply("🍽 No recipe ideas right now.");
+      return;
+    }
+
+    if (cookTonight.length > 0) {
+      await ctx.reply(renderCookTonight(cookTonight));
+    }
+
+    for (const recipe of almostThere) {
+      const missing = recipe.ingredients.filter((i) => !i.present);
+      const sent = await ctx.reply(renderAlmostThereRecipe(recipe), {
+        reply_markup: buildAddMissingKeyboard(missing.length),
+      });
+      pendingCookMissing.set(sent.message_id, { ingredients: missing, claimed: false });
+    }
+  });
+
+  bot.callbackQuery(COOK_ADD_MISSING, async (ctx) => {
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const pending = messageId !== undefined ? pendingCookMissing.get(messageId) : undefined;
+    if (!pending || pending.claimed) {
+      await ctx.answerCallbackQuery("Already handled");
+      return;
+    }
+    pending.claimed = true;
+
+    const count = addMissingIngredients(db, clock, pending.ingredients);
+    pendingCookMissing.delete(messageId!);
+
+    await ctx.answerCallbackQuery(`Added ${count} item${count === 1 ? "" : "s"}`);
+    await ctx.editMessageReplyMarkup();
   });
 
   bot.command("prefs", async (ctx) => {
@@ -307,6 +402,11 @@ function buildReceiptKeyboard(): InlineKeyboard {
     .text("✅ Confirm", RECEIPT_CONFIRM)
     .text("✏️ Edit", RECEIPT_EDIT)
     .text("❌ Discard", RECEIPT_DISCARD);
+}
+
+function buildAddMissingKeyboard(missingCount: number): InlineKeyboard {
+  const label = `Add ${missingCount} missing item${missingCount === 1 ? "" : "s"}`;
+  return new InlineKeyboard().text(label, COOK_ADD_MISSING);
 }
 
 function buildFinishKeyboard(lotIds: number[]): InlineKeyboard | undefined {

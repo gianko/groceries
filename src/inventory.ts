@@ -117,7 +117,7 @@ function buildSections(lots: InventoryLot[]): Section[] {
   return sections;
 }
 
-function compareExpiry(a: string | null, b: string | null): number {
+export function compareExpiry(a: string | null, b: string | null): number {
   if (a === null && b === null) {
     return 0;
   }
