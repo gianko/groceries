@@ -9,20 +9,32 @@ FROM node:22-slim AS base
 RUN corepack enable
 WORKDIR /app
 
+# Stamps build-info.json (see /ping in src/bot.ts) from the build context's
+# .git — isolated to its own stage so .git never reaches the deps/build
+# stages' COPYs or the final image.
+FROM base AS gitinfo
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
+COPY .git ./.git
+RUN commit=$(git rev-parse --short HEAD) && \
+  build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ) && \
+  printf '{\n  "commit": "%s",\n  "buildDate": "%s"\n}\n' "$commit" "$build_date" > /build-info.json
+
 # better-sqlite3 needs a native build step (node-gyp -> python3/make/g++).
 FROM base AS deps
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 COPY package.json pnpm-lock.yaml ./
 # --ignore-scripts skips this project's own "postinstall" (lefthook install,
-# which needs a .git dir we deliberately don't COPY into the image); rebuild
-# then reruns just the allow-listed dependency scripts (better-sqlite3's
-# native build step, esbuild's) via pnpm.onlyBuiltDependencies.
+# which needs a .git dir this stage deliberately doesn't COPY); rebuild then
+# reruns just the allow-listed dependency scripts (better-sqlite3's native
+# build step, esbuild's) via pnpm.onlyBuiltDependencies.
 RUN pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild better-sqlite3
 
 FROM deps AS build
 COPY tsconfig.json ./
 COPY src ./src
+COPY --from=gitinfo /build-info.json ./src/build-info.json
 RUN pnpm build
 
 FROM deps AS prod-deps

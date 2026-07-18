@@ -3,8 +3,9 @@ node_modules
 dist
 .pnpm-store
 
-# Git — el Dockerfile lo excluye a propósito (lefthook postinstall)
-.git
+# .git is needed by the gitinfo build stage (build-info.json for /ping) —
+# only that stage COPYs it in, so it never reaches deps/build or the final
+# image. .gitignore/.github aren't needed anywhere in the build.
 .gitignore
 .github
 
