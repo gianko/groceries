@@ -1,8 +1,9 @@
+import { eq } from "drizzle-orm";
 import type { InlineKeyboardMarkup } from "grammy/types";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BrainUnavailableError } from "../src/brain.js";
 import type { Config } from "../src/config.js";
-import { products, rawNameMap, stockLots } from "../src/db/schema.js";
+import { products, rawNameMap, shoppingListEntries, stockLots } from "../src/db/schema.js";
 import { fail, ok } from "./support/brainFake.js";
 import { createTestHarness, type TestHarness } from "./support/harness.js";
 import { callbackQueryUpdate, photoMessageUpdate, textMessageUpdate } from "./support/updates.js";
@@ -129,6 +130,162 @@ describe("receipt happy path", () => {
     const answers = harness.calls.filter((c) => c.method === "answerCallbackQuery");
     expect(answers).toHaveLength(1);
     expect(answers[0]!.payload.text).toBe("Saved");
+  });
+
+  it("silently closes a Product-linked list entry matched by the confirmed receipt, with no reconcile prompt", async () => {
+    harness.brain.scriptExtractReceipt(ok(sampleExtraction));
+    harness.brain.scriptEstimateShelfLife(ok([{ name: "baked beans", days: 400 }]));
+    const [product] = harness.db
+      .insert(products)
+      .values({ name: "baked beans", category: "food" })
+      .returning()
+      .all();
+    harness.db
+      .insert(shoppingListEntries)
+      .values({
+        source: "manual",
+        productId: product!.id,
+        status: "open",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      })
+      .run();
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+    const { messageId, markup } = findConfirmMarkup(harness);
+
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "receipt:confirm",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const entry = harness.db
+      .select()
+      .from(shoppingListEntries)
+      .where(eq(shoppingListEntries.productId, product!.id))
+      .get();
+    expect(entry?.status).toBe("done");
+
+    const replies = harness.calls.filter((c) => c.method === "sendMessage");
+    expect(replies).toHaveLength(1);
+  });
+
+  it("surfaces a leftover free-text entry with keep/clear buttons after confirm", async () => {
+    harness.brain.scriptExtractReceipt(ok(sampleExtraction));
+    harness.brain.scriptEstimateShelfLife(ok([{ name: "baked beans", days: 400 }]));
+    const [entry] = harness.db
+      .insert(shoppingListEntries)
+      .values({
+        source: "manual",
+        freeText: "sponges",
+        status: "open",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      })
+      .returning()
+      .all();
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+    const { messageId, markup } = findConfirmMarkup(harness);
+
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "receipt:confirm",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const replies = harness.calls.filter((c) => c.method === "sendMessage");
+    const prompt = replies[replies.length - 1]!;
+    expect(prompt.payload.text).toContain("sponges");
+    const promptMarkup = prompt.payload.reply_markup as InlineKeyboardMarkup;
+    expect(promptMarkup.inline_keyboard[0]!.map((b) => b.text)).toEqual(["Keep", "Clear"]);
+
+    const clearButton = promptMarkup.inline_keyboard[0]![1] as { callback_data: string };
+
+    // The stub transport assigns message ids in send order starting at 1000;
+    // the receipt-preview message claimed 1000, so this reconcile prompt is 1001.
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: clearButton.callback_data,
+        messageId: 1001,
+        replyMarkup: promptMarkup,
+      }),
+    );
+
+    const updated = harness.db
+      .select()
+      .from(shoppingListEntries)
+      .where(eq(shoppingListEntries.id, entry!.id))
+      .get();
+    expect(updated?.status).toBe("done");
+  });
+
+  it("never matches a free-text entry to a Product by name equality", async () => {
+    harness.brain.scriptExtractReceipt(ok(sampleExtraction));
+    harness.brain.scriptEstimateShelfLife(ok([{ name: "baked beans", days: 400 }]));
+    harness.db
+      .insert(shoppingListEntries)
+      .values({
+        source: "manual",
+        freeText: "baked beans",
+        status: "open",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      })
+      .run();
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+    const { messageId, markup } = findConfirmMarkup(harness);
+
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "receipt:confirm",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const entry = harness.db
+      .select()
+      .from(shoppingListEntries)
+      .where(eq(shoppingListEntries.freeText, "baked beans"))
+      .get();
+    expect(entry?.status).toBe("open");
+
+    const replies = harness.calls.filter((c) => c.method === "sendMessage");
+    const prompt = replies[replies.length - 1]!;
+    expect(prompt.payload.text).toContain("baked beans");
   });
 
   it("stores nothing on discard", async () => {

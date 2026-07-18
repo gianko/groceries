@@ -6,6 +6,7 @@ import type { Db } from "./db.js";
 
 export interface ConfirmReceiptResult {
   lotIds: number[];
+  productIds: number[];
 }
 
 // Overrides name/category for any line whose Raw Name was mapped on a prior
@@ -81,7 +82,7 @@ export async function confirmReceipt(
   const resolvedDays = (name: string): number | null =>
     existingByName.get(name)?.shelfLifeDays ?? estimatedDaysByName.get(name) ?? null;
 
-  const lotIds: number[] = db.transaction((tx) => {
+  const { lotIds, productIdByName } = db.transaction((tx) => {
     const productIdByName = new Map<string, number>();
 
     for (const name of uniqueNames) {
@@ -134,10 +135,10 @@ export async function confirmReceipt(
         .run();
     }
 
-    return insertedLotIds;
+    return { lotIds: insertedLotIds, productIdByName };
   });
 
-  return { lotIds };
+  return { lotIds, productIds: [...productIdByName.values()] };
 }
 
 export function renderReceiptPreview(extraction: ReceiptExtraction): string {

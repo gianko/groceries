@@ -29,14 +29,16 @@ import {
 import type { Db } from "./db.js";
 import { finishLot } from "./finish.js";
 import { fetchInStockLots, renderInventory } from "./inventory.js";
-import { addManualEntry, fetchOpenEntries, renderList } from "./list.js";
+import { addManualEntry, fetchOpenEntries, renderList, type ShoppingListEntry } from "./list.js";
 import { fetchPrefs, parsePrefsEdit, renderPrefs, savePrefs } from "./prefs.js";
 import {
   applyKnownRawNames,
+  type ConfirmReceiptResult,
   confirmReceipt,
   fetchCatalogNames,
   renderReceiptPreview,
 } from "./receipt.js";
+import { clearEntry, reconcileShoppingList, renderReconcilePrompt } from "./reconcile.js";
 import {
   addCycleGuessEntry,
   type CycleGuess,
@@ -64,6 +66,11 @@ const SHOPPING_ADD_CALLBACK = new RegExp(`^${SHOPPING_ADD_PREFIX}(\\d+)$`);
 const SHOPPING_SKIP_PREFIX = "shopping:skip:";
 const SHOPPING_SKIP_CALLBACK = new RegExp(`^${SHOPPING_SKIP_PREFIX}(\\d+)$`);
 
+const RECONCILE_KEEP_PREFIX = "reconcile:keep:";
+const RECONCILE_KEEP_CALLBACK = new RegExp(`^${RECONCILE_KEEP_PREFIX}(\\d+)$`);
+const RECONCILE_CLEAR_PREFIX = "reconcile:clear:";
+const RECONCILE_CLEAR_CALLBACK = new RegExp(`^${RECONCILE_CLEAR_PREFIX}(\\d+)$`);
+
 const BUSY_MESSAGE = "🧠 busy, try again in a minute";
 const RECEIPT_CAPTION = /^\/receipt(@\S+)?\b/;
 
@@ -85,6 +92,14 @@ function shoppingAddCallbackData(index: number): string {
 
 function shoppingSkipCallbackData(index: number): string {
   return `${SHOPPING_SKIP_PREFIX}${index}`;
+}
+
+function reconcileKeepCallbackData(entryId: number): string {
+  return `${RECONCILE_KEEP_PREFIX}${entryId}`;
+}
+
+function reconcileClearCallbackData(entryId: number): string {
+  return `${RECONCILE_CLEAR_PREFIX}${entryId}`;
 }
 
 export type PhotoDownloader = (ctx: Context) => Promise<Buffer>;
@@ -442,8 +457,9 @@ export function createBot(
       return;
     }
 
+    let result: ConfirmReceiptResult;
     try {
-      await confirmReceipt(db, brain, clock, claim.pending.extraction);
+      result = await confirmReceipt(db, brain, clock, claim.pending.extraction);
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
         // Nothing was written (confirmReceipt only writes after the Brain
@@ -459,6 +475,16 @@ export function createBot(
     pendingReceipts.delete(claim.messageId);
     await ctx.answerCallbackQuery("Saved");
     await ctx.editMessageReplyMarkup();
+
+    // Product-linked list entries matched by this receipt's Products close
+    // silently; leftover free-text entries go to a human via keep/clear
+    // instead of a matcher (per the ticket, no fuzzy text matching).
+    const reconciled = reconcileShoppingList(db, result.productIds);
+    if (reconciled.leftoverFreeText.length > 0) {
+      await ctx.reply(renderReconcilePrompt(reconciled.leftoverFreeText), {
+        reply_markup: buildReconcileKeyboard(reconciled.leftoverFreeText),
+      });
+    }
   });
 
   bot.callbackQuery(RECEIPT_DISCARD, async (ctx) => {
@@ -484,6 +510,26 @@ export function createBot(
     // Leaves the pending receipt (and its photo) in place, unclaimed: the
     // reply-to-this-message handler below is what actually revises it.
     await ctx.answerCallbackQuery("Reply to this message with what to fix");
+  });
+
+  bot.callbackQuery(RECONCILE_KEEP_CALLBACK, async (ctx) => {
+    const entryId = Number(ctx.match[1]);
+    await ctx.answerCallbackQuery("Kept");
+    await removeCallbackButtons(ctx, [
+      reconcileKeepCallbackData(entryId),
+      reconcileClearCallbackData(entryId),
+    ]);
+  });
+
+  bot.callbackQuery(RECONCILE_CLEAR_CALLBACK, async (ctx) => {
+    const entryId = Number(ctx.match[1]);
+    const didClear = clearEntry(db, entryId);
+
+    await ctx.answerCallbackQuery(didClear ? "Cleared" : "Already handled");
+    await removeCallbackButtons(ctx, [
+      reconcileKeepCallbackData(entryId),
+      reconcileClearCallbackData(entryId),
+    ]);
   });
 
   bot.on("message:text", async (ctx) => {
@@ -614,6 +660,17 @@ function buildShoppingGuessKeyboard(guesses: CycleGuess[]): InlineKeyboard | und
       .text("Skip", shoppingSkipCallbackData(index))
       .row();
   });
+  return keyboard;
+}
+
+function buildReconcileKeyboard(entries: ShoppingListEntry[]): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  for (const entry of entries) {
+    keyboard
+      .text("Keep", reconcileKeepCallbackData(entry.id))
+      .text("Clear", reconcileClearCallbackData(entry.id))
+      .row();
+  }
   return keyboard;
 }
 
