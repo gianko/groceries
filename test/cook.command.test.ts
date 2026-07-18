@@ -5,7 +5,7 @@ import { BrainUnavailableError } from "../src/brain.js";
 import type { Config } from "../src/config.js";
 import { products, shoppingListEntries, stockLots } from "../src/db/schema.js";
 import { fail, ok } from "./support/brainFake.js";
-import { createTestHarness, type TestHarness } from "./support/harness.js";
+import { type ApiCall, createTestHarness, type TestHarness } from "./support/harness.js";
 import { callbackQueryUpdate, textMessageUpdate } from "./support/updates.js";
 
 const ALLOWED_USER_A = 111;
@@ -34,8 +34,9 @@ function seedLot(
     isStaple?: boolean;
     estExpiry?: string | null;
     unit?: string | null;
+    quantity?: number;
   },
-): void {
+): number {
   const [product] = harness.db
     .insert(products)
     .values({
@@ -46,17 +47,20 @@ function seedLot(
     .returning()
     .all();
 
-  harness.db
+  const [lot] = harness.db
     .insert(stockLots)
     .values({
       productId: product!.id,
-      quantity: 1,
+      quantity: overrides.quantity ?? 1,
       unit: overrides.unit ?? null,
       purchasedAt: "2026-07-01",
       estExpiry: overrides.estExpiry ?? null,
       status: "in_stock",
     })
-    .run();
+    .returning()
+    .all();
+
+  return lot!.id;
 }
 
 async function runCook(harness: TestHarness): Promise<void> {
@@ -81,6 +85,16 @@ function findRecipeMarkup(
     messageId: 1000 + index,
     markup: harness.calls[index]!.payload.reply_markup as InlineKeyboardMarkup,
   };
+}
+
+// Once callback-query handling has produced non-message calls (answerCallbackQuery,
+// editMessageReplyMarkup) interleaved with replies, the stub's sequential message id
+// no longer lines up with the call's raw index — only with how many sendMessage/
+// sendPhoto calls preceded it. Count those instead.
+function sentMessageCount(harness: TestHarness, upTo: ApiCall): number {
+  return harness.calls
+    .slice(0, harness.calls.indexOf(upTo) + 1)
+    .filter((c) => c.method === "sendMessage" || c.method === "sendPhoto").length;
 }
 
 describe("/cook", () => {
@@ -275,5 +289,202 @@ describe("/cook", () => {
 
     const answers = harness.calls.filter((c) => c.method === "answerCallbackQuery");
     expect(answers.map((c) => c.payload.text)).toEqual(["Added 1 item", "Already handled"]);
+  });
+
+  it("decrements matched Lots on 'cooking this' and removes the tapped button", async () => {
+    const breadLotId = seedLot(harness, { name: "bread", unit: "slice", quantity: 10 });
+    const recipe: RecipeSuggestion = {
+      title: "Beans on toast",
+      ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
+      missingCount: 0,
+    };
+    harness.brain.scriptSuggestRecipes(ok([recipe]));
+    await runCook(harness);
+
+    const { messageId, markup } = findRecipeMarkup(harness, "Beans on toast");
+
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "cook:cooking:0",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const lot = harness.db
+      .select()
+      .from(stockLots)
+      .all()
+      .find((l) => l.id === breadLotId);
+    expect(lot?.quantity).toBe(8);
+
+    const resultCall = harness.calls.find((c) => (c.payload.text as string)?.includes("bread"));
+    expect(resultCall!.payload.text).toContain("bread (10 → 8)");
+
+    const answer = harness.calls.find((c) => c.method === "answerCallbackQuery");
+    expect(answer!.payload.text).toBe("Logged");
+  });
+
+  it("fires a Finish-Confirmation button instead of writing a small guessed remainder", async () => {
+    const riceLotId = seedLot(harness, { name: "rice", unit: "cup", quantity: 4 });
+    const recipe: RecipeSuggestion = {
+      title: "Fried rice",
+      ingredients: [{ name: "rice", quantity: 3, unit: "cup", present: true }],
+      missingCount: 0,
+    };
+    harness.brain.scriptSuggestRecipes(ok([recipe]));
+    await runCook(harness);
+
+    const { messageId, markup } = findRecipeMarkup(harness, "Fried rice");
+
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "cook:cooking:0",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const lot = harness.db
+      .select()
+      .from(stockLots)
+      .all()
+      .find((l) => l.id === riceLotId);
+    expect(lot?.quantity).toBe(4);
+
+    const resultCall = harness.calls.find((c) =>
+      (c.payload.text as string)?.includes("Nearly out"),
+    );
+    expect(resultCall!.payload.text).toContain("rice");
+    const finishMarkup = resultCall!.payload.reply_markup as InlineKeyboardMarkup;
+    expect(finishMarkup.inline_keyboard[0]![0]!.text).toBe("Finish");
+    expect((finishMarkup.inline_keyboard[0]![0] as { callback_data: string }).callback_data).toBe(
+      `finish:${riceLotId}`,
+    );
+
+    // The stub transport assigns sequential message ids in the order
+    // sendMessage/sendPhoto calls happen (see findRecipeMarkup above), so
+    // count only those calls up to and including this reply.
+    const resultMessageId = 1000 + sentMessageCount(harness, resultCall!) - 1;
+
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: `finish:${riceLotId}`,
+        messageId: resultMessageId,
+        replyMarkup: finishMarkup,
+      }),
+    );
+    const finished = harness.db
+      .select()
+      .from(stockLots)
+      .all()
+      .find((l) => l.id === riceLotId);
+    expect(finished?.status).toBe("finished");
+  });
+
+  it("first-tap-wins on the Finish-Confirmation spawned by 'cooking this'", async () => {
+    const riceLotId = seedLot(harness, { name: "rice", unit: "cup", quantity: 4 });
+    const recipe: RecipeSuggestion = {
+      title: "Fried rice",
+      ingredients: [{ name: "rice", quantity: 3, unit: "cup", present: true }],
+      missingCount: 0,
+    };
+    harness.brain.scriptSuggestRecipes(ok([recipe]));
+    await runCook(harness);
+
+    const { messageId, markup } = findRecipeMarkup(harness, "Fried rice");
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "cook:cooking:0",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const resultCall = harness.calls.find((c) =>
+      (c.payload.text as string)?.includes("Nearly out"),
+    );
+    const finishMarkup = resultCall!.payload.reply_markup as InlineKeyboardMarkup;
+    const resultMessageId = 1000 + sentMessageCount(harness, resultCall!) - 1;
+
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: `finish:${riceLotId}`,
+        messageId: resultMessageId,
+        replyMarkup: finishMarkup,
+      }),
+    );
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_B,
+        chatId: GROUP_CHAT_ID,
+        data: `finish:${riceLotId}`,
+        messageId: resultMessageId,
+        replyMarkup: finishMarkup,
+      }),
+    );
+
+    const finished = harness.db
+      .select()
+      .from(stockLots)
+      .all()
+      .find((l) => l.id === riceLotId);
+    expect(finished?.status).toBe("finished");
+
+    const answers = harness.calls.filter((c) => c.method === "answerCallbackQuery");
+    expect(answers.map((c) => c.payload.text)).toEqual([
+      "Logged",
+      "Marked finished",
+      "Already finished",
+    ]);
+  });
+
+  it("first-tap-wins on 'cooking this'", async () => {
+    seedLot(harness, { name: "bread", unit: "slice", quantity: 10 });
+    const recipe: RecipeSuggestion = {
+      title: "Beans on toast",
+      ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
+      missingCount: 0,
+    };
+    harness.brain.scriptSuggestRecipes(ok([recipe]));
+    await runCook(harness);
+
+    const { messageId, markup } = findRecipeMarkup(harness, "Beans on toast");
+
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "cook:cooking:0",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_B,
+        chatId: GROUP_CHAT_ID,
+        data: "cook:cooking:0",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const rows = harness.db.select().from(stockLots).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.quantity).toBe(8);
+
+    const answers = harness.calls.filter((c) => c.method === "answerCallbackQuery");
+    expect(answers.map((c) => c.payload.text)).toEqual(["Logged", "Already handled"]);
   });
 });

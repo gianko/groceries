@@ -11,10 +11,13 @@ import type { Config } from "./config.js";
 import {
   addMissingIngredients,
   type CookIngredient,
+  type CookRecipe,
+  decrementForRecipe,
   fetchFoodInventory,
   fetchStapleNames,
   reclassifyRecipe,
   renderAlmostThereRecipe,
+  renderCookingThisResult,
   renderCookTonight,
   tierRecipes,
 } from "./cook.js";
@@ -38,12 +41,18 @@ const RECEIPT_EDIT = "receipt:edit";
 const RECEIPT_DISCARD = "receipt:discard";
 
 const COOK_ADD_MISSING = "cook:addmissing";
+const COOKING_THIS_PREFIX = "cook:cooking:";
+const COOKING_THIS_CALLBACK = new RegExp(`^${COOKING_THIS_PREFIX}(\\d+)$`);
 
 const BUSY_MESSAGE = "🧠 busy, try again in a minute";
 const RECEIPT_CAPTION = /^\/receipt(@\S+)?\b/;
 
 function finishCallbackData(lotId: number): string {
   return `${FINISH_PREFIX}${lotId}`;
+}
+
+function cookingThisCallbackData(index: number): string {
+  return `${COOKING_THIS_PREFIX}${index}`;
 }
 
 export type PhotoDownloader = (ctx: Context) => Promise<Buffer>;
@@ -72,6 +81,14 @@ interface PendingCookMissing {
   claimed: boolean;
 }
 
+interface PendingCookTonight {
+  recipes: CookRecipe[];
+  // One claim flag per recipe button on the message — each is an
+  // independent first-tap-wins decision, same synchronous check-and-set
+  // pattern as PendingReceipt.claimed.
+  claimed: boolean[];
+}
+
 export function createBot(
   config: Config,
   db: Db,
@@ -94,6 +111,12 @@ export function createBot(
   // shopping list until the tap (per ADR-0002); a restart drops these
   // cleanly, same as pendingReceipts.
   const pendingCookMissing = new Map<number, PendingCookMissing>();
+
+  // Cook Tonight recipes offered on the current /cook reply, keyed by that
+  // message's ID — one "cooking this" decision per recipe button. The
+  // decrement itself only happens on the tap (per ADR-0002); a restart
+  // drops these cleanly, same as pendingReceipts.
+  const pendingCookTonight = new Map<number, PendingCookTonight>();
 
   // Message ID of the most recent /prefs reply still open for editing. Only
   // the latest one stays live, so a reply to a stale /prefs message from
@@ -174,7 +197,13 @@ export function createBot(
     }
 
     if (cookTonight.length > 0) {
-      await ctx.reply(renderCookTonight(cookTonight));
+      const sent = await ctx.reply(renderCookTonight(cookTonight), {
+        reply_markup: buildCookingThisKeyboard(cookTonight),
+      });
+      pendingCookTonight.set(sent.message_id, {
+        recipes: cookTonight,
+        claimed: cookTonight.map(() => false),
+      });
     }
 
     for (const recipe of almostThere) {
@@ -202,6 +231,28 @@ export function createBot(
     await ctx.editMessageReplyMarkup();
   });
 
+  bot.callbackQuery(COOKING_THIS_CALLBACK, async (ctx) => {
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const index = Number(ctx.match[1]);
+    const pending = messageId !== undefined ? pendingCookTonight.get(messageId) : undefined;
+    const recipe = pending?.recipes[index];
+    if (!pending || recipe === undefined || pending.claimed[index]) {
+      await ctx.answerCallbackQuery("Already handled");
+      return;
+    }
+    pending.claimed[index] = true;
+
+    const result = decrementForRecipe(db, recipe);
+    const keyboard = buildFinishKeyboard(result.finishConfirmations.map((lot) => lot.lotId));
+
+    await ctx.answerCallbackQuery("Logged");
+    await ctx.reply(
+      renderCookingThisResult(recipe.title, result),
+      keyboard ? { reply_markup: keyboard } : undefined,
+    );
+    await removeCallbackButton(ctx, cookingThisCallbackData(index));
+  });
+
   bot.command("prefs", async (ctx) => {
     const sent = await ctx.reply(renderPrefs(fetchPrefs(db)));
     pendingPrefsMessageId = sent.message_id;
@@ -212,7 +263,7 @@ export function createBot(
     const didFinish = finishLot(db, lotId);
 
     await ctx.answerCallbackQuery(didFinish ? "Marked finished" : "Already finished");
-    await removeFinishButton(ctx, lotId);
+    await removeCallbackButton(ctx, finishCallbackData(lotId));
   });
 
   bot.on("message:photo", async (ctx) => {
@@ -409,6 +460,14 @@ function buildAddMissingKeyboard(missingCount: number): InlineKeyboard {
   return new InlineKeyboard().text(label, COOK_ADD_MISSING);
 }
 
+function buildCookingThisKeyboard(recipes: CookRecipe[]): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  recipes.forEach((recipe, index) => {
+    keyboard.text(`🍳 Cooking this: ${recipe.title}`, cookingThisCallbackData(index)).row();
+  });
+  return keyboard;
+}
+
 function buildFinishKeyboard(lotIds: number[]): InlineKeyboard | undefined {
   if (lotIds.length === 0) {
     return undefined;
@@ -438,13 +497,13 @@ function removeButtonFromMarkup(
 
 // A losing racer recomputes the identical edit and gets Telegram's "message
 // is not modified" error, which is the expected no-op outcome, not a failure.
-async function removeFinishButton(ctx: Context, lotId: number): Promise<void> {
+async function removeCallbackButton(ctx: Context, callbackData: string): Promise<void> {
   const markup = ctx.callbackQuery?.message?.reply_markup as InlineKeyboardMarkup | undefined;
   if (!markup) {
     return;
   }
 
-  const newMarkup = removeButtonFromMarkup(markup, finishCallbackData(lotId));
+  const newMarkup = removeButtonFromMarkup(markup, callbackData);
 
   try {
     await ctx.editMessageReplyMarkup(newMarkup ? { reply_markup: newMarkup } : undefined);

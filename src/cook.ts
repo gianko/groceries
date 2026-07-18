@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { RecipeSuggestion } from "./brain.js";
 import type { Clock } from "./clock.js";
 import { products, shoppingListEntries, stockLots } from "./db/schema.js";
@@ -117,6 +117,150 @@ export function renderAlmostThereRecipe(recipe: CookRecipe): string {
   const missing = recipe.ingredients.filter((i) => !i.present);
   const lines = missing.map((i) => `• ${i.name} (${formatQuantity(i.quantity, i.unit)})`);
   return [`🥘 ${recipe.title}`, `Missing ${missing.length}:`, ...lines].join("\n");
+}
+
+// A guessed leftover is worse than asking: below this fraction of a Lot's
+// original quantity, "cooking this" stops short of writing the decrement and
+// instead surfaces the Lot for a Finish-Confirmation tap (per the ticket's
+// ~25% threshold and ADR-0002 — the decrement write itself is authorized by
+// the "cooking this" tap, but a near-empty remainder is too uncertain to
+// commit as a number).
+const FINISH_CONFIRMATION_THRESHOLD = 0.25;
+
+function unitsMatch(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) {
+    return a === b;
+  }
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+interface MatchableLot {
+  id: number;
+  productName: string;
+  quantity: number;
+  unit: string | null;
+  estExpiry: string | null;
+}
+
+function toFinishConfirmation(lot: MatchableLot): FinishConfirmationLot {
+  return { lotId: lot.id, productName: lot.productName, quantity: lot.quantity, unit: lot.unit };
+}
+
+function fetchLotsForProduct<TDb extends Pick<Db, "select">>(
+  db: TDb,
+  name: string,
+): MatchableLot[] {
+  const rows = db
+    .select({
+      id: stockLots.id,
+      productName: products.name,
+      quantity: stockLots.quantity,
+      unit: stockLots.unit,
+      estExpiry: stockLots.estExpiry,
+    })
+    .from(stockLots)
+    .innerJoin(products, eq(stockLots.productId, products.id))
+    .where(and(eq(stockLots.status, "in_stock"), sql`lower(${products.name}) = lower(${name})`))
+    .all();
+
+  return rows.sort((a, b) => compareExpiry(a.estExpiry, b.estExpiry) || a.id - b.id);
+}
+
+export interface DecrementedLot {
+  lotId: number;
+  productName: string;
+  before: number;
+  after: number;
+}
+
+export interface FinishConfirmationLot {
+  lotId: number;
+  productName: string;
+  quantity: number;
+  unit: string | null;
+}
+
+export interface CookDecrementResult {
+  decremented: DecrementedLot[];
+  finishConfirmations: FinishConfirmationLot[];
+}
+
+// The one write "cooking this" is allowed to make: matched Lots decrement by
+// the recipe's own ingredient quantities, soonest-expiry first. A Lot whose
+// unit doesn't match the recipe ingredient, or whose remainder would land at
+// or below FINISH_CONFIRMATION_THRESHOLD, is left untouched and reported as
+// needing a Finish-Confirmation instead — see the threshold comment above.
+// Ingredients the recipe marked absent (missing, or a Staple with no Lots at
+// all) are skipped: nothing to decrement.
+export function decrementForRecipe(db: Db, recipe: CookRecipe): CookDecrementResult {
+  const decremented: DecrementedLot[] = [];
+  const finishConfirmations: FinishConfirmationLot[] = [];
+
+  db.transaction((tx) => {
+    for (const ingredient of recipe.ingredients) {
+      if (!ingredient.present) {
+        continue;
+      }
+
+      const lots = fetchLotsForProduct(tx, ingredient.name);
+      let needed = ingredient.quantity;
+
+      for (const lot of lots) {
+        if (needed <= 0) {
+          break;
+        }
+
+        if (!unitsMatch(ingredient.unit, lot.unit)) {
+          finishConfirmations.push(toFinishConfirmation(lot));
+          continue;
+        }
+
+        const take = Math.min(needed, lot.quantity);
+        const remainder = lot.quantity - take;
+        const remainderRatio = lot.quantity > 0 ? remainder / lot.quantity : 0;
+
+        if (remainderRatio <= FINISH_CONFIRMATION_THRESHOLD) {
+          finishConfirmations.push(toFinishConfirmation(lot));
+        } else {
+          tx.update(stockLots).set({ quantity: remainder }).where(eq(stockLots.id, lot.id)).run();
+          decremented.push({
+            lotId: lot.id,
+            productName: lot.productName,
+            before: lot.quantity,
+            after: remainder,
+          });
+        }
+
+        needed -= take;
+      }
+    }
+  });
+
+  return { decremented, finishConfirmations };
+}
+
+export function renderCookingThisResult(title: string, result: CookDecrementResult): string {
+  const lines = [`🍳 Cooking ${title}`];
+
+  if (result.decremented.length > 0) {
+    lines.push("Used:");
+    for (const lot of result.decremented) {
+      lines.push(`• ${lot.productName} (${lot.before} → ${lot.after})`);
+    }
+  }
+
+  if (result.finishConfirmations.length > 0) {
+    lines.push("Nearly out — confirm below:");
+    for (const lot of result.finishConfirmations) {
+      lines.push(`• ${lot.productName}`);
+    }
+  }
+
+  if (result.decremented.length === 0 && result.finishConfirmations.length === 0) {
+    lines.push("Nothing to update.");
+  }
+
+  return lines.join("\n");
 }
 
 // Writes each missing ingredient as a recipe_missing entry: Product-linked
