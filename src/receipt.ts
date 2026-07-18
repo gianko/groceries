@@ -8,6 +8,36 @@ export interface ConfirmReceiptResult {
   lotIds: number[];
 }
 
+// Overrides name/category for any line whose Raw Name was mapped on a prior
+// confirmed receipt, regardless of what the Brain guessed this time — the
+// deterministic bypass that keeps a re-purchased item from ever forking into
+// a second Product (per ADR-0001).
+export function applyKnownRawNames(db: Db, extraction: ReceiptExtraction): ReceiptExtraction {
+  const lines = extraction.lines.map((line) => {
+    const mapped = db
+      .select({ name: products.name, category: products.category })
+      .from(rawNameMap)
+      .innerJoin(products, eq(rawNameMap.productId, products.id))
+      .where(eq(rawNameMap.rawName, line.rawName))
+      .get();
+
+    return mapped ? { ...line, name: mapped.name, category: mapped.category } : line;
+  });
+
+  return { lines };
+}
+
+// The full Catalog name list, handed to the Brain so new Raw Names get
+// normalized against what the household already has instead of coining
+// near-duplicates (e.g. "beans, baked" alongside "baked beans").
+export function fetchCatalogNames(db: Db): string[] {
+  return db
+    .select({ name: products.name })
+    .from(products)
+    .all()
+    .map((row) => row.name);
+}
+
 // Products are matched by exact normalized name, created if unseen; shelf
 // life is estimated once per Product via a single batched call for every
 // cache miss on this receipt, then cached on the Product row for reuse by

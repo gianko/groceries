@@ -43,8 +43,8 @@ export class GeminiBrain implements Brain {
     this.sleep = options.sleep ?? realSleep;
   }
 
-  async extractReceipt(photo: Buffer): Promise<ReceiptExtraction> {
-    const parts: Part[] = [{ text: buildExtractReceiptPrompt() }, imagePart(photo)];
+  async extractReceipt(photo: Buffer, catalogNames: string[]): Promise<ReceiptExtraction> {
+    const parts: Part[] = [{ text: buildExtractReceiptPrompt(catalogNames) }, imagePart(photo)];
     return this.generateJson(parts, receiptExtractionSchema);
   }
 
@@ -52,9 +52,10 @@ export class GeminiBrain implements Brain {
     current: ReceiptExtraction,
     correction: string,
     photo: Buffer,
+    catalogNames: string[],
   ): Promise<ReceiptExtraction> {
     const parts: Part[] = [
-      { text: buildReviseReceiptPrompt(current, correction) },
+      { text: buildReviseReceiptPrompt(current, correction, catalogNames) },
       imagePart(photo),
     ];
     return this.generateJson(parts, receiptExtractionSchema);
@@ -178,7 +179,17 @@ const JSON_ONLY_INSTRUCTION =
 const RECEIPT_LINES_SHAPE_INSTRUCTION =
   'Respond with an object: { "lines": [ { "rawName": string, "name": string, "category": "food" | "household", "quantity": number, "unit": string | null, "price": number | null } ] }';
 
-function buildExtractReceiptPrompt(): string {
+function buildCatalogInstruction(catalogNames: string[]): string {
+  return [
+    "Existing Catalog product names (the household's known products):",
+    catalogNames.length > 0 ? catalogNames.map((name) => `- ${name}`).join("\n") : "(empty)",
+    "",
+    "For each item's name, map it to an existing Catalog name above if it's the same product,",
+    "using that name exactly. Only coin a new normalized name if it's genuinely not on the list.",
+  ].join("\n");
+}
+
+function buildExtractReceiptPrompt(catalogNames: string[]): string {
   return [
     "You read Tesco Ireland till receipts from a photo and extract purchased items.",
     'Receipt text uses Tesco Ireland abbreviations (e.g. "T.FIN B/BEANS 420G") and often embeds',
@@ -195,12 +206,18 @@ function buildExtractReceiptPrompt(): string {
     '- unit: the unit for quantity if any (e.g. "g", "ml", "kg"), or null',
     "- price: the line price in euro as a number, or null if unreadable",
     "",
+    buildCatalogInstruction(catalogNames),
+    "",
     JSON_ONLY_INSTRUCTION,
     RECEIPT_LINES_SHAPE_INSTRUCTION,
   ].join("\n");
 }
 
-function buildReviseReceiptPrompt(current: ReceiptExtraction, correction: string): string {
+function buildReviseReceiptPrompt(
+  current: ReceiptExtraction,
+  correction: string,
+  catalogNames: string[],
+): string {
   return [
     "You previously extracted this receipt as JSON:",
     JSON.stringify(current),
@@ -210,6 +227,8 @@ function buildReviseReceiptPrompt(current: ReceiptExtraction, correction: string
     "",
     "Look at the receipt photo again and return the FULL corrected list of lines (not a diff),",
     "applying the correction. Keep every field for every line.",
+    "",
+    buildCatalogInstruction(catalogNames),
     "",
     JSON_ONLY_INSTRUCTION,
     RECEIPT_LINES_SHAPE_INSTRUCTION,

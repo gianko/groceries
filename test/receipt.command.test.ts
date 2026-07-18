@@ -370,6 +370,74 @@ describe("receipt happy path", () => {
   });
 });
 
+describe("Catalog-aware normalization", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    harness = createTestHarness(config);
+  });
+
+  it("overrides the Brain's naming for a known Raw Name with the mapped Product, involving no LLM naming for that line", async () => {
+    const [product] = harness.db
+      .insert(products)
+      .values({ name: "baked beans", category: "food", shelfLifeDays: 400 })
+      .returning()
+      .all();
+    harness.db
+      .insert(rawNameMap)
+      .values({ rawName: "T.FIN B/BEANS 420G", productId: product!.id })
+      .run();
+
+    // The Brain misfires on naming for a raw name we already know — the
+    // bypass should ignore this guess entirely and use the mapped Product.
+    harness.brain.scriptExtractReceipt(
+      ok({
+        lines: [
+          {
+            rawName: "T.FIN B/BEANS 420G",
+            name: "beans, baked (tin)",
+            category: "household" as const,
+            quantity: 1,
+            unit: "g",
+            price: 1.5,
+          },
+        ],
+      }),
+    );
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+
+    const call = harness.calls[0]!;
+    expect(call.payload.text).toContain("baked beans");
+    expect(call.payload.text).not.toContain("beans, baked");
+  });
+
+  it("passes the current Catalog name list to the extraction call, so new Raw Names are normalized against it", async () => {
+    harness.db.insert(products).values({ name: "milk", category: "food" }).run();
+    harness.db.insert(products).values({ name: "baked beans", category: "food" }).run();
+    harness.brain.scriptExtractReceipt(ok(sampleExtraction));
+
+    await harness.handleUpdate(
+      photoMessageUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        replyToBotMessageId: 42,
+        botUserId: BOT_USER_ID,
+      }),
+    );
+
+    const extractCall = harness.brain.calls.find((c) => c.method === "extractReceipt");
+    expect(extractCall!.args[1]).toEqual(expect.arrayContaining(["milk", "baked beans"]));
+  });
+});
+
 describe("receipt correction loop", () => {
   let harness: TestHarness;
 

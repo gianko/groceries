@@ -40,8 +40,8 @@ export class BrainFake implements Brain {
     this.estimateShelfLifeQueue = results;
   }
 
-  async extractReceipt(photo: Buffer): Promise<ReceiptExtraction> {
-    this.calls.push({ method: "extractReceipt", args: [photo] });
+  async extractReceipt(photo: Buffer, catalogNames: string[]): Promise<ReceiptExtraction> {
+    this.calls.push({ method: "extractReceipt", args: [photo, catalogNames] });
     return consume(this.extractReceiptQueue);
   }
 
@@ -49,8 +49,9 @@ export class BrainFake implements Brain {
     current: ReceiptExtraction,
     correction: string,
     photo: Buffer,
+    catalogNames: string[],
   ): Promise<ReceiptExtraction> {
-    this.calls.push({ method: "reviseReceipt", args: [current, correction, photo] });
+    this.calls.push({ method: "reviseReceipt", args: [current, correction, photo, catalogNames] });
     return consume(this.reviseReceiptQueue);
   }
 

@@ -5,11 +5,12 @@ import { z } from "zod";
 // parse failure, exponential backoff on 429/5xx, then throw
 // BrainUnavailableError so callers can surface a graceful chat message.
 export interface Brain {
-  extractReceipt(photo: Buffer): Promise<ReceiptExtraction>;
+  extractReceipt(photo: Buffer, catalogNames: string[]): Promise<ReceiptExtraction>;
   reviseReceipt(
     current: ReceiptExtraction,
     correction: string,
     photo: Buffer,
+    catalogNames: string[],
   ): Promise<ReceiptExtraction>;
   suggestRecipes(input: RecipeContext): Promise<RecipeSuggestion[]>;
   estimateShelfLife(productNames: string[]): Promise<ShelfLifeEstimate[]>;

@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { ReceiptExtraction, ReceiptLine } from "../src/brain.js";
 import { products, rawNameMap, stockLots } from "../src/db/schema.js";
 import { createDb, type Db } from "../src/db.js";
-import { confirmReceipt, renderReceiptPreview } from "../src/receipt.js";
+import {
+  applyKnownRawNames,
+  confirmReceipt,
+  fetchCatalogNames,
+  renderReceiptPreview,
+} from "../src/receipt.js";
 import { BrainFake, fail, ok } from "./support/brainFake.js";
 import { FakeClock } from "./support/fakeClock.js";
 
@@ -169,6 +174,56 @@ describe("confirmReceipt", () => {
     expect(db.select().from(products).all()).toHaveLength(0);
     expect(db.select().from(stockLots).all()).toHaveLength(0);
     expect(db.select().from(rawNameMap).all()).toHaveLength(0);
+  });
+});
+
+describe("applyKnownRawNames", () => {
+  let db: Db;
+
+  beforeEach(() => {
+    db = createDb(":memory:");
+  });
+
+  it("overrides name and category for a line whose Raw Name was mapped on a prior receipt, ignoring what the Brain guessed this time", () => {
+    const [product] = db
+      .insert(products)
+      .values({ name: "baked beans", category: "food", shelfLifeDays: 400 })
+      .returning()
+      .all();
+    db.insert(rawNameMap).values({ rawName: "T.FIN B/BEANS 420G", productId: product!.id }).run();
+
+    const resolved = applyKnownRawNames(
+      db,
+      extraction([
+        line({ rawName: "T.FIN B/BEANS 420G", name: "beans, baked tin", category: "household" }),
+      ]),
+    );
+
+    expect(resolved.lines[0]).toMatchObject({ name: "baked beans", category: "food" });
+  });
+
+  it("leaves a line untouched when its Raw Name has never been mapped", () => {
+    const resolved = applyKnownRawNames(
+      db,
+      extraction([line({ rawName: "MYSTERY ITEM", name: "mystery item" })]),
+    );
+
+    expect(resolved.lines[0]).toMatchObject({ name: "mystery item" });
+  });
+});
+
+describe("fetchCatalogNames", () => {
+  it("returns every Product name in the Catalog", () => {
+    const db = createDb(":memory:");
+    db.insert(products).values({ name: "milk", category: "food" }).run();
+    db.insert(products).values({ name: "baked beans", category: "food" }).run();
+
+    expect(fetchCatalogNames(db).sort()).toEqual(["baked beans", "milk"]);
+  });
+
+  it("returns an empty list when the Catalog is empty", () => {
+    const db = createDb(":memory:");
+    expect(fetchCatalogNames(db)).toEqual([]);
   });
 });
 

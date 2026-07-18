@@ -6,7 +6,12 @@ import type { Config } from "./config.js";
 import type { Db } from "./db.js";
 import { finishLot } from "./finish.js";
 import { fetchInStockLots, renderInventory } from "./inventory.js";
-import { confirmReceipt, renderReceiptPreview } from "./receipt.js";
+import {
+  applyKnownRawNames,
+  confirmReceipt,
+  fetchCatalogNames,
+  renderReceiptPreview,
+} from "./receipt.js";
 
 const FINISH_PREFIX = "finish:";
 const FINISH_CALLBACK = new RegExp(`^${FINISH_PREFIX}(\\d+)$`);
@@ -110,7 +115,7 @@ export function createBot(
 
     let extraction: ReceiptExtraction;
     try {
-      extraction = await brain.extractReceipt(photo);
+      extraction = await brain.extractReceipt(photo, fetchCatalogNames(db));
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
         await ctx.reply(BUSY_MESSAGE);
@@ -118,6 +123,7 @@ export function createBot(
       }
       throw err;
     }
+    extraction = applyKnownRawNames(db, extraction);
 
     const sent = await ctx.reply(renderReceiptPreview(extraction), {
       reply_markup: buildReceiptKeyboard(),
@@ -196,7 +202,12 @@ export function createBot(
 
     let revised: ReceiptExtraction;
     try {
-      revised = await brain.reviseReceipt(pending.extraction, ctx.message.text, pending.photo);
+      revised = await brain.reviseReceipt(
+        pending.extraction,
+        ctx.message.text,
+        pending.photo,
+        fetchCatalogNames(db),
+      );
     } catch (err) {
       pending.claimed = false;
       if (err instanceof BrainUnavailableError) {
@@ -206,12 +217,15 @@ export function createBot(
       throw err;
     }
 
-    pending.extraction = revised;
+    pending.extraction = applyKnownRawNames(db, revised);
     pending.claimed = false;
 
-    await ctx.api.editMessageText(ctx.chat.id, replyToMessageId, renderReceiptPreview(revised), {
-      reply_markup: buildReceiptKeyboard(),
-    });
+    await ctx.api.editMessageText(
+      ctx.chat.id,
+      replyToMessageId,
+      renderReceiptPreview(pending.extraction),
+      { reply_markup: buildReceiptKeyboard() },
+    );
   });
 
   return bot;
