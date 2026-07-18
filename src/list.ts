@@ -65,11 +65,14 @@ export function addManualEntry(db: Db, clock: Clock, rawText: string): ShoppingL
   };
 }
 
+export function renderEntryLine(entry: ShoppingListEntry): string {
+  return `• ${entry.productName ?? entry.freeText}`;
+}
+
 export function renderList(entries: ShoppingListEntry[]): string {
   if (entries.length === 0) {
     return "🛒 Shopping list is empty.";
   }
 
-  const lines = entries.map((entry) => `• ${entry.productName ?? entry.freeText}`);
-  return ["🛒 Shopping list", ...lines].join("\n");
+  return ["🛒 Shopping list", ...entries.map(renderEntryLine)].join("\n");
 }

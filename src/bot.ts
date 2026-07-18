@@ -37,6 +37,13 @@ import {
   fetchCatalogNames,
   renderReceiptPreview,
 } from "./receipt.js";
+import {
+  addCycleGuessEntry,
+  type CycleGuess,
+  computeCycleGuesses,
+  fetchExpiringLots,
+  renderShoppingSummary,
+} from "./shopping.js";
 
 const FINISH_PREFIX = "finish:";
 const FINISH_CALLBACK = new RegExp(`^${FINISH_PREFIX}(\\d+)$`);
@@ -52,6 +59,11 @@ const COOKING_THIS_CALLBACK = new RegExp(`^${COOKING_THIS_PREFIX}(\\d+)$`);
 const COOK_RATE_PREFIX = "cook:rate:";
 const COOK_RATE_CALLBACK = new RegExp(`^${COOK_RATE_PREFIX}(\\d+):(up|down)$`);
 
+const SHOPPING_ADD_PREFIX = "shopping:add:";
+const SHOPPING_ADD_CALLBACK = new RegExp(`^${SHOPPING_ADD_PREFIX}(\\d+)$`);
+const SHOPPING_SKIP_PREFIX = "shopping:skip:";
+const SHOPPING_SKIP_CALLBACK = new RegExp(`^${SHOPPING_SKIP_PREFIX}(\\d+)$`);
+
 const BUSY_MESSAGE = "🧠 busy, try again in a minute";
 const RECEIPT_CAPTION = /^\/receipt(@\S+)?\b/;
 
@@ -65,6 +77,14 @@ function cookingThisCallbackData(index: number): string {
 
 function cookRateCallbackData(recipeId: number, rating: "up" | "down"): string {
   return `${COOK_RATE_PREFIX}${recipeId}:${rating}`;
+}
+
+function shoppingAddCallbackData(index: number): string {
+  return `${SHOPPING_ADD_PREFIX}${index}`;
+}
+
+function shoppingSkipCallbackData(index: number): string {
+  return `${SHOPPING_SKIP_PREFIX}${index}`;
 }
 
 export type PhotoDownloader = (ctx: Context) => Promise<Buffer>;
@@ -98,6 +118,13 @@ interface PendingCookTonight {
   // One claim flag per recipe button on the message — each is an
   // independent first-tap-wins decision, same synchronous check-and-set
   // pattern as PendingReceipt.claimed.
+  claimed: boolean[];
+}
+
+interface PendingShoppingGuesses {
+  guesses: CycleGuess[];
+  // One claim flag per add/skip pair — each Cycle Guess is an independent
+  // first-tap-wins decision, same pattern as PendingCookTonight.claimed.
   claimed: boolean[];
 }
 
@@ -136,6 +163,18 @@ export function createBot(
   // to get a fresh editable prompt. A restart drops this cleanly too.
   let pendingPrefsMessageId: number | undefined;
 
+  // Cycle Guesses offered on the current /shopping reply, keyed by that
+  // message's ID — one add/skip decision per guess. The cycle_guess entry is
+  // only written on the "add" tap (per ADR-0002); a restart drops these
+  // cleanly, same as pendingCookTonight.
+  const pendingShoppingGuesses = new Map<number, PendingShoppingGuesses>();
+
+  // Message ID of the most recent /shopping summary, so a reply to it can
+  // append a last-minute item — unlike pendingPrefsMessageId this is never
+  // "used up": either household member can reply to the same summary
+  // multiple times, per the ticket's "anything else?" flow.
+  let pendingShoppingMessageId: number | undefined;
+
   bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
     const chatId = ctx.chat?.id;
@@ -170,6 +209,61 @@ export function createBot(
     }
 
     await ctx.reply(renderList(fetchOpenEntries(db)));
+  });
+
+  bot.command("shopping", async (ctx) => {
+    const entries = fetchOpenEntries(db);
+    const expiringLots = fetchExpiringLots(db, clock);
+    const cycleGuesses = computeCycleGuesses(db, clock);
+
+    const sent = await ctx.reply(renderShoppingSummary(entries, expiringLots, cycleGuesses), {
+      reply_markup: buildShoppingGuessKeyboard(cycleGuesses),
+    });
+
+    pendingShoppingMessageId = sent.message_id;
+    if (cycleGuesses.length > 0) {
+      pendingShoppingGuesses.set(sent.message_id, {
+        guesses: cycleGuesses,
+        claimed: cycleGuesses.map(() => false),
+      });
+    }
+  });
+
+  bot.callbackQuery(SHOPPING_ADD_CALLBACK, async (ctx) => {
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const index = Number(ctx.match[1]);
+    const pending = messageId !== undefined ? pendingShoppingGuesses.get(messageId) : undefined;
+    const guess = pending?.guesses[index];
+    if (!pending || guess === undefined || pending.claimed[index]) {
+      await ctx.answerCallbackQuery("Already handled");
+      return;
+    }
+    pending.claimed[index] = true;
+
+    addCycleGuessEntry(db, clock, guess);
+
+    await ctx.answerCallbackQuery("Added");
+    await removeCallbackButtons(ctx, [
+      shoppingAddCallbackData(index),
+      shoppingSkipCallbackData(index),
+    ]);
+  });
+
+  bot.callbackQuery(SHOPPING_SKIP_CALLBACK, async (ctx) => {
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const index = Number(ctx.match[1]);
+    const pending = messageId !== undefined ? pendingShoppingGuesses.get(messageId) : undefined;
+    if (!pending || pending.guesses[index] === undefined || pending.claimed[index]) {
+      await ctx.answerCallbackQuery("Already handled");
+      return;
+    }
+    pending.claimed[index] = true;
+
+    await ctx.answerCallbackQuery("Skipped");
+    await removeCallbackButtons(ctx, [
+      shoppingAddCallbackData(index),
+      shoppingSkipCallbackData(index),
+    ]);
   });
 
   bot.command("cook", async (ctx) => {
@@ -405,6 +499,12 @@ export function createBot(
       return;
     }
 
+    if (replyToMessageId === pendingShoppingMessageId) {
+      addManualEntry(db, clock, ctx.message.text);
+      await ctx.reply(renderList(fetchOpenEntries(db)));
+      return;
+    }
+
     const pending = pendingReceipts.get(replyToMessageId);
     if (!pending || pending.claimed) {
       return;
@@ -500,6 +600,21 @@ function buildReceiptKeyboard(): InlineKeyboard {
 function buildAddMissingKeyboard(missingCount: number): InlineKeyboard {
   const label = `Add ${missingCount} missing item${missingCount === 1 ? "" : "s"}`;
   return new InlineKeyboard().text(label, COOK_ADD_MISSING);
+}
+
+function buildShoppingGuessKeyboard(guesses: CycleGuess[]): InlineKeyboard | undefined {
+  if (guesses.length === 0) {
+    return undefined;
+  }
+
+  const keyboard = new InlineKeyboard();
+  guesses.forEach((guess, index) => {
+    keyboard
+      .text(`➕ ${guess.productName}`, shoppingAddCallbackData(index))
+      .text("Skip", shoppingSkipCallbackData(index))
+      .row();
+  });
+  return keyboard;
 }
 
 function buildCookingThisKeyboard(recipes: CookRecipe[]): InlineKeyboard {
