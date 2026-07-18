@@ -6,6 +6,7 @@ import type { Config } from "./config.js";
 import type { Db } from "./db.js";
 import { finishLot } from "./finish.js";
 import { fetchInStockLots, renderInventory } from "./inventory.js";
+import { fetchPrefs, parsePrefsEdit, renderPrefs, savePrefs } from "./prefs.js";
 import {
   applyKnownRawNames,
   confirmReceipt,
@@ -63,6 +64,12 @@ export function createBot(
   // and a restart drops everything cleanly (re-send the photo).
   const pendingReceipts = new Map<number, PendingReceipt>();
 
+  // Message ID of the most recent /prefs reply still open for editing. Only
+  // the latest one stays live, so a reply to a stale /prefs message from
+  // earlier in the chat history can't silently rewrite prefs; re-run /prefs
+  // to get a fresh editable prompt. A restart drops this cleanly too.
+  let pendingPrefsMessageId: number | undefined;
+
   bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
     const chatId = ctx.chat?.id;
@@ -88,6 +95,11 @@ export function createBot(
       const keyboard = buildFinishKeyboard(chunk.lotIds);
       await ctx.reply(chunk.text, keyboard ? { reply_markup: keyboard } : undefined);
     }
+  });
+
+  bot.command("prefs", async (ctx) => {
+    const sent = await ctx.reply(renderPrefs(fetchPrefs(db)));
+    pendingPrefsMessageId = sent.message_id;
   });
 
   bot.callbackQuery(FINISH_CALLBACK, async (ctx) => {
@@ -186,6 +198,12 @@ export function createBot(
     const replyToMessageId = ctx.message.reply_to_message?.message_id;
     const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
     if (!isReplyToBot || replyToMessageId === undefined) {
+      return;
+    }
+
+    if (replyToMessageId === pendingPrefsMessageId) {
+      const updated = savePrefs(db, parsePrefsEdit(ctx.message.text));
+      await ctx.api.editMessageText(ctx.chat.id, replyToMessageId, renderPrefs(updated));
       return;
     }
 
