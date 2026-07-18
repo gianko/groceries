@@ -1,0 +1,37 @@
+# Dependencias y build — se reinstalan/recompilan dentro de la imagen
+node_modules
+dist
+.pnpm-store
+
+# Git — el Dockerfile lo excluye a propósito (lefthook postinstall)
+.git
+.gitignore
+.github
+
+# Secretos: nunca en el contexto de build
+.env
+.env.*
+!.env.example
+
+# Datos locales y artefactos de runtime
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+heartbeat
+data/
+
+# Tooling y editor
+.vscode
+.idea
+.DS_Store
+*.log
+coverage
+.eslintcache
+
+# Docs y config que no entran en la imagen
+docker-compose.yml
+.dockerignore
+Dockerfile
+README.md
+docs/
