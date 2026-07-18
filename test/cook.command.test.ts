@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { RecipeContext, RecipeSuggestion } from "../src/brain.js";
 import { BrainUnavailableError } from "../src/brain.js";
 import type { Config } from "../src/config.js";
-import { products, shoppingListEntries, stockLots } from "../src/db/schema.js";
+import { products, recipes, shoppingListEntries, stockLots } from "../src/db/schema.js";
 import { fail, ok } from "./support/brainFake.js";
 import { type ApiCall, createTestHarness, type TestHarness } from "./support/harness.js";
 import { callbackQueryUpdate, textMessageUpdate } from "./support/updates.js";
@@ -447,6 +447,180 @@ describe("/cook", () => {
       "Marked finished",
       "Already finished",
     ]);
+  });
+
+  it("shows a 👍/👎 prompt after 'cooking this' and saves the verdict on tap", async () => {
+    seedLot(harness, { name: "bread", unit: "slice", quantity: 10 });
+    const recipe: RecipeSuggestion = {
+      title: "Beans on toast",
+      ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
+      missingCount: 0,
+    };
+    harness.brain.scriptSuggestRecipes(ok([recipe]));
+    await runCook(harness);
+
+    const { messageId, markup } = findRecipeMarkup(harness, "Beans on toast");
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "cook:cooking:0",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const resultCall = harness.calls.find((c) => (c.payload.text as string)?.includes("bread"));
+    const resultMarkup = resultCall!.payload.reply_markup as InlineKeyboardMarkup;
+    const buttons = resultMarkup.inline_keyboard.flat() as {
+      text: string;
+      callback_data: string;
+    }[];
+    expect(buttons.map((b) => b.text)).toEqual(["👍", "👎"]);
+    const upCallback = buttons.find((b) => b.text === "👍")!.callback_data;
+
+    const resultMessageId = 1000 + sentMessageCount(harness, resultCall!) - 1;
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: upCallback,
+        messageId: resultMessageId,
+        replyMarkup: resultMarkup,
+      }),
+    );
+
+    const rows = harness.db.select().from(recipes).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.title).toBe("Beans on toast");
+    expect(rows[0]?.rating).toBe("up");
+
+    const answer = harness.calls.find(
+      (c) => c.method === "answerCallbackQuery" && c.payload.text === "Saved",
+    );
+    expect(answer).toBeDefined();
+  });
+
+  it("first-tap-wins between racing 👍/👎 taps on the rating prompt", async () => {
+    seedLot(harness, { name: "bread", unit: "slice", quantity: 10 });
+    const recipe: RecipeSuggestion = {
+      title: "Beans on toast",
+      ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
+      missingCount: 0,
+    };
+    harness.brain.scriptSuggestRecipes(ok([recipe]));
+    await runCook(harness);
+
+    const { messageId, markup } = findRecipeMarkup(harness, "Beans on toast");
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: "cook:cooking:0",
+        messageId,
+        replyMarkup: markup,
+      }),
+    );
+
+    const resultCall = harness.calls.find((c) => (c.payload.text as string)?.includes("bread"));
+    const resultMarkup = resultCall!.payload.reply_markup as InlineKeyboardMarkup;
+    const buttons = resultMarkup.inline_keyboard.flat() as {
+      text: string;
+      callback_data: string;
+    }[];
+    const upCallback = buttons.find((b) => b.text === "👍")!.callback_data;
+    const downCallback = buttons.find((b) => b.text === "👎")!.callback_data;
+    const resultMessageId = 1000 + sentMessageCount(harness, resultCall!) - 1;
+
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_A,
+        chatId: GROUP_CHAT_ID,
+        data: upCallback,
+        messageId: resultMessageId,
+        replyMarkup: resultMarkup,
+      }),
+    );
+    await harness.handleUpdate(
+      callbackQueryUpdate({
+        userId: ALLOWED_USER_B,
+        chatId: GROUP_CHAT_ID,
+        data: downCallback,
+        messageId: resultMessageId,
+        replyMarkup: resultMarkup,
+      }),
+    );
+
+    const rows = harness.db.select().from(recipes).all();
+    expect(rows[0]?.rating).toBe("up");
+
+    const answers = harness.calls.filter((c) => c.method === "answerCallbackQuery");
+    expect(answers.map((c) => c.payload.text)).toEqual(["Logged", "Saved", "Already rated"]);
+  });
+
+  it("surfaces a liked, fully-coverable favorite before any LLM suggestion", async () => {
+    seedLot(harness, { name: "bread", unit: "slice", quantity: 10 });
+    harness.db
+      .insert(recipes)
+      .values({
+        title: "Beans on toast",
+        ingredients: [{ name: "bread", quantity: 2, unit: "slice" }],
+        rating: "up",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      })
+      .run();
+
+    harness.brain.scriptSuggestRecipes(ok([]));
+    await runCook(harness);
+
+    expect(harness.calls[0]!.payload.text).toContain("⭐ Favorites you can cook tonight");
+    expect(harness.calls[0]!.payload.text).toContain("Beans on toast");
+
+    const call = harness.brain.calls.find((c) => c.method === "suggestRecipes");
+    const input = call!.args[0] as RecipeContext;
+    expect(input.favoriteRecipeNames).toEqual(["Beans on toast"]);
+  });
+
+  it("does not surface a liked favorite missing an ingredient, and still calls the LLM", async () => {
+    harness.db
+      .insert(recipes)
+      .values({
+        title: "Chili",
+        ingredients: [{ name: "kidney beans", quantity: 1, unit: "can" }],
+        rating: "up",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      })
+      .run();
+
+    harness.brain.scriptSuggestRecipes(ok([]));
+    await runCook(harness);
+
+    const favoritesCall = harness.calls.find((c) =>
+      (c.payload.text as string)?.includes("⭐ Favorites"),
+    );
+    expect(favoritesCall).toBeUndefined();
+    expect(harness.brain.calls.some((c) => c.method === "suggestRecipes")).toBe(true);
+  });
+
+  it("never surfaces a disliked recipe from the deterministic pass", async () => {
+    seedLot(harness, { name: "bread", unit: "slice", quantity: 10 });
+    harness.db
+      .insert(recipes)
+      .values({
+        title: "Beans on toast",
+        ingredients: [{ name: "bread", quantity: 2, unit: "slice" }],
+        rating: "down",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      })
+      .run();
+
+    harness.brain.scriptSuggestRecipes(ok([]));
+    await runCook(harness);
+
+    const favoritesCall = harness.calls.find((c) =>
+      (c.payload.text as string)?.includes("⭐ Favorites"),
+    );
+    expect(favoritesCall).toBeUndefined();
   });
 
   it("first-tap-wins on 'cooking this'", async () => {

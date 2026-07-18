@@ -4,15 +4,19 @@ import {
   addMissingIngredients,
   type CookRecipe,
   decrementForRecipe,
+  fetchCoverableFavorites,
+  fetchFavoriteRecipes,
   fetchFoodInventory,
   fetchStapleNames,
+  rateRecipe,
   reclassifyRecipe,
   renderAlmostThereRecipe,
   renderCookingThisResult,
   renderCookTonight,
+  saveCookedRecipe,
   tierRecipes,
 } from "../src/cook.js";
-import { products, shoppingListEntries, stockLots } from "../src/db/schema.js";
+import { products, recipes, shoppingListEntries, stockLots } from "../src/db/schema.js";
 import { createDb, type Db } from "../src/db.js";
 import { FakeClock } from "./support/fakeClock.js";
 
@@ -401,5 +405,151 @@ describe("renderCookingThisResult", () => {
     });
 
     expect(text).toContain("Nothing to update");
+  });
+});
+
+describe("saveCookedRecipe / rateRecipe", () => {
+  it("saves a recipe with no rating, then lets the first rating tap set it", () => {
+    const db = createDb();
+    const clock = new FakeClock(new Date("2026-01-01T00:00:00Z"));
+    const recipeId = saveCookedRecipe(db, clock, {
+      title: "Beans on toast",
+      ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
+      missingCount: 0,
+    });
+
+    const saved = db
+      .select()
+      .from(recipes)
+      .all()
+      .find((r) => r.id === recipeId);
+    expect(saved?.title).toBe("Beans on toast");
+    expect(saved?.rating).toBeNull();
+    expect(saved?.ingredients).toEqual([{ name: "bread", quantity: 2, unit: "slice" }]);
+
+    const didRate = rateRecipe(db, recipeId, "up");
+
+    expect(didRate).toBe(true);
+    const rated = db
+      .select()
+      .from(recipes)
+      .all()
+      .find((r) => r.id === recipeId);
+    expect(rated?.rating).toBe("up");
+  });
+
+  it("first-tap-wins between racing 👍/👎 on the same recipe", () => {
+    const db = createDb();
+    const clock = new FakeClock(new Date("2026-01-01T00:00:00Z"));
+    const recipeId = saveCookedRecipe(db, clock, {
+      title: "Chili",
+      ingredients: [],
+      missingCount: 0,
+    });
+
+    const first = rateRecipe(db, recipeId, "up");
+    const second = rateRecipe(db, recipeId, "down");
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+    const rated = db
+      .select()
+      .from(recipes)
+      .all()
+      .find((r) => r.id === recipeId);
+    expect(rated?.rating).toBe("up");
+  });
+});
+
+describe("fetchFavoriteRecipes", () => {
+  it("returns only recipes rated up", () => {
+    const db = createDb();
+    const clock = new FakeClock(new Date("2026-01-01T00:00:00Z"));
+    const likedId = saveCookedRecipe(db, clock, {
+      title: "Beans on toast",
+      ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
+      missingCount: 0,
+    });
+    const dislikedId = saveCookedRecipe(db, clock, {
+      title: "Fancy stew",
+      ingredients: [],
+      missingCount: 0,
+    });
+    saveCookedRecipe(db, clock, {
+      title: "Pending verdict",
+      ingredients: [],
+      missingCount: 0,
+    });
+    rateRecipe(db, likedId, "up");
+    rateRecipe(db, dislikedId, "down");
+
+    const favorites = fetchFavoriteRecipes(db);
+
+    expect(favorites).toEqual([
+      { title: "Beans on toast", ingredients: [{ name: "bread", quantity: 2, unit: "slice" }] },
+    ]);
+  });
+
+  it("uses only the most recently cooked verdict when a title was cooked more than once", () => {
+    const db = createDb();
+    const clock = new FakeClock(new Date("2026-01-01T00:00:00Z"));
+    const firstCookId = saveCookedRecipe(db, clock, {
+      title: "Chili",
+      ingredients: [{ name: "kidney beans", quantity: 1, unit: "can", present: true }],
+      missingCount: 0,
+    });
+    rateRecipe(db, firstCookId, "up");
+
+    const secondCookId = saveCookedRecipe(db, clock, {
+      title: "Chili",
+      ingredients: [{ name: "kidney beans", quantity: 1, unit: "can", present: true }],
+      missingCount: 0,
+    });
+    rateRecipe(db, secondCookId, "down");
+
+    expect(fetchFavoriteRecipes(db)).toEqual([]);
+  });
+});
+
+describe("fetchCoverableFavorites", () => {
+  it("surfaces a liked favorite whose ingredients are all in inventory (staples exempt)", () => {
+    const favorites = [
+      {
+        title: "Beans on toast",
+        ingredients: [
+          { name: "bread", quantity: 2, unit: "slice" },
+          { name: "salt", quantity: 1, unit: "pinch" },
+        ],
+      },
+    ];
+
+    const result = fetchCoverableFavorites(favorites, new Set(["bread"]), new Set(["salt"]));
+
+    expect(result).toEqual([
+      {
+        title: "Beans on toast",
+        ingredients: [
+          { name: "bread", quantity: 2, unit: "slice", present: true },
+          { name: "salt", quantity: 1, unit: "pinch", present: true },
+        ],
+        missingCount: 0,
+      },
+    ]);
+  });
+
+  it("drops a favorite missing even one ingredient, instead of demoting it", () => {
+    const favorites = [
+      {
+        title: "Chili",
+        ingredients: [
+          { name: "kidney beans", quantity: 1, unit: "can" },
+          { name: "rice", quantity: 200, unit: "g" },
+        ],
+      },
+    ];
+
+    const result = fetchCoverableFavorites(favorites, new Set(["rice"]), new Set());
+
+    expect(result).toEqual([]);
   });
 });

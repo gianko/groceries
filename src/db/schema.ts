@@ -76,6 +76,22 @@ export const pendings = sqliteTable("pendings", {
   createdAt: text("created_at").notNull(),
 });
 
+// One row per "cooking this" tap: the recipe as cooked, plus the 👍/👎
+// verdict from the rating prompt that follows. Rating starts null (asked but
+// not yet answered) and only ever flips once — per ADR-0002, the verdict is
+// stored state and changes only on that human tap. A recipe cooked more than
+// once gets a fresh row each time, so the favorites pass always reasons
+// about the most recently cooked verdict for a title.
+export const recipes = sqliteTable("recipes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  ingredients: text("ingredients", { mode: "json" })
+    .$type<{ name: string; quantity: number; unit: string | null }[]>()
+    .notNull(),
+  rating: text("rating", { enum: ["up", "down"] }),
+  createdAt: text("created_at").notNull(),
+});
+
 export const schema = {
   products,
   stockLots,
@@ -83,4 +99,5 @@ export const schema = {
   rawNameMap,
   prefs,
   pendings,
+  recipes,
 };

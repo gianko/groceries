@@ -13,12 +13,17 @@ import {
   type CookIngredient,
   type CookRecipe,
   decrementForRecipe,
+  fetchCoverableFavorites,
+  fetchFavoriteRecipes,
   fetchFoodInventory,
   fetchStapleNames,
+  rateRecipe,
   reclassifyRecipe,
   renderAlmostThereRecipe,
   renderCookingThisResult,
   renderCookTonight,
+  renderFavoritesTonight,
+  saveCookedRecipe,
   tierRecipes,
 } from "./cook.js";
 import type { Db } from "./db.js";
@@ -44,6 +49,9 @@ const COOK_ADD_MISSING = "cook:addmissing";
 const COOKING_THIS_PREFIX = "cook:cooking:";
 const COOKING_THIS_CALLBACK = new RegExp(`^${COOKING_THIS_PREFIX}(\\d+)$`);
 
+const COOK_RATE_PREFIX = "cook:rate:";
+const COOK_RATE_CALLBACK = new RegExp(`^${COOK_RATE_PREFIX}(\\d+):(up|down)$`);
+
 const BUSY_MESSAGE = "🧠 busy, try again in a minute";
 const RECEIPT_CAPTION = /^\/receipt(@\S+)?\b/;
 
@@ -53,6 +61,10 @@ function finishCallbackData(lotId: number): string {
 
 function cookingThisCallbackData(index: number): string {
   return `${COOKING_THIS_PREFIX}${index}`;
+}
+
+function cookRateCallbackData(recipeId: number, rating: "up" | "down"): string {
+  return `${COOK_RATE_PREFIX}${recipeId}:${rating}`;
 }
 
 export type PhotoDownloader = (ctx: Context) => Promise<Buffer>;
@@ -162,6 +174,24 @@ export function createBot(
 
   bot.command("cook", async (ctx) => {
     const inventory = fetchFoodInventory(db);
+    const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
+    const stapleNames = fetchStapleNames(db);
+
+    // The deterministic pass: liked recipes fully coverable by inventory go
+    // out before any LLM call, per the ticket ("proven dinners beat LLM
+    // experiments").
+    const favorites = fetchFavoriteRecipes(db);
+    const coverableFavorites = fetchCoverableFavorites(favorites, inventoryNames, stapleNames);
+
+    if (coverableFavorites.length > 0) {
+      const sent = await ctx.reply(renderFavoritesTonight(coverableFavorites), {
+        reply_markup: buildCookingThisKeyboard(coverableFavorites),
+      });
+      pendingCookTonight.set(sent.message_id, {
+        recipes: coverableFavorites,
+        claimed: coverableFavorites.map(() => false),
+      });
+    }
 
     let suggestions: RecipeSuggestion[];
     try {
@@ -174,7 +204,7 @@ export function createBot(
           estExpiry: item.estExpiry,
         })),
         prefsBlurb: fetchPrefs(db).blurb,
-        favoriteRecipeNames: [],
+        favoriteRecipeNames: favorites.map((f) => f.title),
       });
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
@@ -184,8 +214,6 @@ export function createBot(
       throw err;
     }
 
-    const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
-    const stapleNames = fetchStapleNames(db);
     const classified = suggestions.map((recipe) =>
       reclassifyRecipe(recipe, inventoryNames, stapleNames),
     );
@@ -243,14 +271,28 @@ export function createBot(
     pending.claimed[index] = true;
 
     const result = decrementForRecipe(db, recipe);
-    const keyboard = buildFinishKeyboard(result.finishConfirmations.map((lot) => lot.lotId));
+    const recipeId = saveCookedRecipe(db, clock, recipe);
 
     await ctx.answerCallbackQuery("Logged");
-    await ctx.reply(
-      renderCookingThisResult(recipe.title, result),
-      keyboard ? { reply_markup: keyboard } : undefined,
-    );
-    await removeCallbackButton(ctx, cookingThisCallbackData(index));
+    await ctx.reply(renderCookingThisResult(recipe.title, result), {
+      reply_markup: buildCookingResultKeyboard(
+        result.finishConfirmations.map((lot) => lot.lotId),
+        recipeId,
+      ),
+    });
+    await removeCallbackButtons(ctx, [cookingThisCallbackData(index)]);
+  });
+
+  bot.callbackQuery(COOK_RATE_CALLBACK, async (ctx) => {
+    const recipeId = Number(ctx.match[1]);
+    const rating = ctx.match[2] === "up" ? "up" : "down";
+    const didRate = rateRecipe(db, recipeId, rating);
+
+    await ctx.answerCallbackQuery(didRate ? "Saved" : "Already rated");
+    await removeCallbackButtons(ctx, [
+      cookRateCallbackData(recipeId, "up"),
+      cookRateCallbackData(recipeId, "down"),
+    ]);
   });
 
   bot.command("prefs", async (ctx) => {
@@ -263,7 +305,7 @@ export function createBot(
     const didFinish = finishLot(db, lotId);
 
     await ctx.answerCallbackQuery(didFinish ? "Marked finished" : "Already finished");
-    await removeCallbackButton(ctx, finishCallbackData(lotId));
+    await removeCallbackButtons(ctx, [finishCallbackData(lotId)]);
   });
 
   bot.on("message:photo", async (ctx) => {
@@ -468,27 +510,45 @@ function buildCookingThisKeyboard(recipes: CookRecipe[]): InlineKeyboard {
   return keyboard;
 }
 
-function buildFinishKeyboard(lotIds: number[]): InlineKeyboard | undefined {
-  if (lotIds.length === 0) {
-    return undefined;
-  }
-
-  const keyboard = new InlineKeyboard();
+function addFinishRows(keyboard: InlineKeyboard, lotIds: number[]): InlineKeyboard {
   for (const lotId of lotIds) {
     keyboard.text("Finish", finishCallbackData(lotId)).row();
   }
   return keyboard;
 }
 
-// Drops only the tapped lot's button from the markup, so other lots' finish
-// actions in the same message stay live.
-function removeButtonFromMarkup(
+function buildFinishKeyboard(lotIds: number[]): InlineKeyboard | undefined {
+  if (lotIds.length === 0) {
+    return undefined;
+  }
+
+  return addFinishRows(new InlineKeyboard(), lotIds);
+}
+
+// Always carries the 👍/👎 rating prompt, plus a Finish row per Lot the
+// decrement left below threshold — the rating prompt is not optional the way
+// Finish rows are (per the ticket, the verdict is asked every time).
+function buildCookingResultKeyboard(lotIds: number[], recipeId: number): InlineKeyboard {
+  const keyboard = addFinishRows(new InlineKeyboard(), lotIds);
+  keyboard
+    .text("👍", cookRateCallbackData(recipeId, "up"))
+    .text("👎", cookRateCallbackData(recipeId, "down"));
+  return keyboard;
+}
+
+// Drops only the given buttons from the markup (by callback data), so other
+// independent decisions packed into the same message — other lots' Finish
+// buttons, the other half of a 👍/👎 pair — stay live.
+function removeButtonsFromMarkup(
   markup: InlineKeyboardMarkup,
-  callbackData: string,
+  callbackDataToRemove: string[],
 ): InlineKeyboardMarkup | undefined {
   const rows = markup.inline_keyboard
     .map((row) =>
-      row.filter((button) => !("callback_data" in button) || button.callback_data !== callbackData),
+      row.filter(
+        (button) =>
+          !("callback_data" in button) || !callbackDataToRemove.includes(button.callback_data),
+      ),
     )
     .filter((row) => row.length > 0);
 
@@ -497,13 +557,13 @@ function removeButtonFromMarkup(
 
 // A losing racer recomputes the identical edit and gets Telegram's "message
 // is not modified" error, which is the expected no-op outcome, not a failure.
-async function removeCallbackButton(ctx: Context, callbackData: string): Promise<void> {
+async function removeCallbackButtons(ctx: Context, callbackData: string[]): Promise<void> {
   const markup = ctx.callbackQuery?.message?.reply_markup as InlineKeyboardMarkup | undefined;
   if (!markup) {
     return;
   }
 
-  const newMarkup = removeButtonFromMarkup(markup, callbackData);
+  const newMarkup = removeButtonsFromMarkup(markup, callbackData);
 
   try {
     await ctx.editMessageReplyMarkup(newMarkup ? { reply_markup: newMarkup } : undefined);

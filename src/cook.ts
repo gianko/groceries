@@ -1,7 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { RecipeSuggestion } from "./brain.js";
 import type { Clock } from "./clock.js";
-import { products, shoppingListEntries, stockLots } from "./db/schema.js";
+import { products, recipes, shoppingListEntries, stockLots } from "./db/schema.js";
 import type { Db } from "./db.js";
 import { compareExpiry } from "./inventory.js";
 
@@ -107,6 +107,11 @@ export function renderCookTonight(recipes: CookRecipe[]): string {
   }
   const lines = recipes.map((r) => `• ${r.title}`);
   return ["🍳 Cook tonight", ...lines].join("\n");
+}
+
+export function renderFavoritesTonight(favoriteRecipes: CookRecipe[]): string {
+  const lines = favoriteRecipes.map((r) => `• ${r.title}`);
+  return ["⭐ Favorites you can cook tonight", ...lines].join("\n");
 }
 
 function formatQuantity(quantity: number, unit: string | null): string {
@@ -296,4 +301,97 @@ export function addMissingIngredients(
   });
 
   return ingredients.length;
+}
+
+export interface SavedRecipeIngredient {
+  name: string;
+  quantity: number;
+  unit: string | null;
+}
+
+export interface FavoriteRecipe {
+  title: string;
+  ingredients: SavedRecipeIngredient[];
+}
+
+// One row per "cooking this" tap, the recipe as actually cooked. Rating
+// starts unset — the row is itself the pending-rating state, same as an
+// unanswered Finish-Confirmation (ADR-0002: only a human tap flips it).
+export function saveCookedRecipe(db: Db, clock: Clock, recipe: CookRecipe): number {
+  const [inserted] = db
+    .insert(recipes)
+    .values({
+      title: recipe.title,
+      ingredients: recipe.ingredients.map((i) => ({
+        name: i.name,
+        quantity: i.quantity,
+        unit: i.unit,
+      })),
+      rating: null,
+      createdAt: clock.now().toISOString(),
+    })
+    .returning()
+    .all();
+  return inserted!.id;
+}
+
+// Guarding the WHERE on rating being unset makes this the same atomic
+// first-tap-wins primitive as finishLot: of a racing 👍/👎 pair on the same
+// recipe row, only the first succeeds.
+export function rateRecipe(db: Db, recipeId: number, rating: "up" | "down"): boolean {
+  const result = db
+    .update(recipes)
+    .set({ rating })
+    .where(and(eq(recipes.id, recipeId), isNull(recipes.rating)))
+    .run();
+  return result.changes > 0;
+}
+
+// A recipe can be cooked (and rated) more than once under the same title;
+// only the most recently cooked verdict decides whether it's still a
+// favorite, so a later 👎 supersedes an earlier 👍 on a re-cook.
+export function fetchFavoriteRecipes(db: Db): FavoriteRecipe[] {
+  const rows = db
+    .select({ title: recipes.title, ingredients: recipes.ingredients, rating: recipes.rating })
+    .from(recipes)
+    .orderBy(desc(recipes.id))
+    .all();
+
+  const latestByTitle = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const key = row.title.toLowerCase();
+    if (!latestByTitle.has(key)) {
+      latestByTitle.set(key, row);
+    }
+  }
+
+  return [...latestByTitle.values()]
+    .filter((row) => row.rating === "up")
+    .map((row) => ({ title: row.title, ingredients: row.ingredients }));
+}
+
+// The deterministic favorites-first pass: a liked recipe is only surfaced
+// when it's fully coverable by current inventory via the same exact
+// (case-insensitive) Product-name match reclassifyRecipe uses, Staples
+// exempt. A favorite short even one ingredient is dropped here entirely —
+// per the ticket, it must not pre-empt the LLM pass, and there's no
+// Almost-there tier for favorites.
+export function fetchCoverableFavorites(
+  favorites: FavoriteRecipe[],
+  inventoryNames: ReadonlySet<string>,
+  stapleNames: ReadonlySet<string>,
+): CookRecipe[] {
+  return favorites
+    .map((favorite) =>
+      reclassifyRecipe(
+        {
+          title: favorite.title,
+          ingredients: favorite.ingredients.map((i) => ({ ...i, present: true })),
+          missingCount: 0,
+        },
+        inventoryNames,
+        stapleNames,
+      ),
+    )
+    .filter((recipe) => recipe.missingCount === 0);
 }
