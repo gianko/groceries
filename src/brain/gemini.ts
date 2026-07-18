@@ -3,6 +3,8 @@ import type { ZodType } from "zod";
 import {
   type Brain,
   BrainUnavailableError,
+  type FreeTextExtraction,
+  freeTextExtractionSchema,
   type ReceiptExtraction,
   type RecipeContext,
   type RecipeSuggestion,
@@ -71,6 +73,22 @@ export class GeminiBrain implements Brain {
     const parts: Part[] = [{ text: buildEstimateShelfLifePrompt(productNames) }];
     const result = await this.generateJson(parts, shelfLifeEstimatesSchema);
     return result.estimates;
+  }
+
+  async parseFreeTextItems(text: string, catalogNames: string[]): Promise<FreeTextExtraction> {
+    const parts: Part[] = [{ text: buildParseFreeTextItemsPrompt(text, catalogNames) }];
+    return this.generateJson(parts, freeTextExtractionSchema);
+  }
+
+  async reviseFreeTextItems(
+    current: FreeTextExtraction,
+    correction: string,
+    catalogNames: string[],
+  ): Promise<FreeTextExtraction> {
+    const parts: Part[] = [
+      { text: buildReviseFreeTextItemsPrompt(current, correction, catalogNames) },
+    ];
+    return this.generateJson(parts, freeTextExtractionSchema);
   }
 
   private async generateOnce(parts: Part[]): Promise<string> {
@@ -265,6 +283,53 @@ function buildSuggestRecipesPrompt(input: RecipeContext): string {
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+const FREE_TEXT_LINES_SHAPE_INSTRUCTION =
+  'Respond with an object: { "lines": [ { "name": string, "category": "food" | "household", "quantity": number, "unit": string | null } ] }';
+
+function buildParseFreeTextItemsPrompt(text: string, catalogNames: string[]): string {
+  return [
+    "A household member listed grocery/household items already at home, in plain language,",
+    'not from a receipt (e.g. "2 tins baked beans, bag of rice, half a pack of pasta, milk").',
+    "",
+    "Free text list:",
+    text,
+    "",
+    "For each item, return:",
+    "- name: a normalized, lowercase, singular-where-natural English name for the underlying product",
+    '  (e.g. "baked beans"), stable enough that the same product always gets the same name',
+    '- category: "food" or "household"',
+    "- quantity: the stated quantity as a number (default 1 if not stated)",
+    '- unit: the unit for quantity if any (e.g. "g", "ml", "kg"), or null',
+    "",
+    buildCatalogInstruction(catalogNames),
+    "",
+    JSON_ONLY_INSTRUCTION,
+    FREE_TEXT_LINES_SHAPE_INSTRUCTION,
+  ].join("\n");
+}
+
+function buildReviseFreeTextItemsPrompt(
+  current: FreeTextExtraction,
+  correction: string,
+  catalogNames: string[],
+): string {
+  return [
+    "You previously parsed a free-text pantry list as JSON:",
+    JSON.stringify(current),
+    "",
+    "The household member sent this correction in plain language:",
+    correction,
+    "",
+    "Return the FULL corrected list of lines (not a diff), applying the correction. Keep every",
+    "field for every line.",
+    "",
+    buildCatalogInstruction(catalogNames),
+    "",
+    JSON_ONLY_INSTRUCTION,
+    FREE_TEXT_LINES_SHAPE_INSTRUCTION,
+  ].join("\n");
 }
 
 function buildEstimateShelfLifePrompt(productNames: string[]): string {

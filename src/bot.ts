@@ -1,9 +1,11 @@
 import { Bot, type BotConfig, type Context, GrammyError, InlineKeyboard } from "grammy";
 import type { InlineKeyboardMarkup } from "grammy/types";
 import cron from "node-cron";
+import { confirmAddItems, renderAddPreview } from "./add.js";
 import {
   type Brain,
   BrainUnavailableError,
+  type FreeTextExtraction,
   type ReceiptExtraction,
   type RecipeSuggestion,
 } from "./brain.js";
@@ -65,6 +67,10 @@ const FINISH_CALLBACK = new RegExp(`^${FINISH_PREFIX}(\\d+)$`);
 const RECEIPT_CONFIRM = "receipt:confirm";
 const RECEIPT_EDIT = "receipt:edit";
 const RECEIPT_DISCARD = "receipt:discard";
+
+const ADD_CONFIRM = "add:confirm";
+const ADD_EDIT = "add:edit";
+const ADD_DISCARD = "add:discard";
 
 const COOK_ADD_MISSING = "cook:addmissing";
 const COOKING_THIS_PREFIX = "cook:cooking:";
@@ -155,6 +161,13 @@ interface PendingReceipt {
   claimed: boolean;
 }
 
+interface PendingAdd {
+  extraction: FreeTextExtraction;
+  // Same synchronous check-and-set claim as PendingReceipt.claimed. No photo
+  // field — /add has nothing to hold beyond the parsed lines themselves.
+  claimed: boolean;
+}
+
 interface PendingCookMissing {
   ingredients: CookIngredient[];
   // Same synchronous check-and-set claim as PendingReceipt.claimed.
@@ -191,6 +204,11 @@ export function createBot(
   // by the bot's own confirm-keyboard message ID: gone on confirm/discard,
   // and a restart drops everything cleanly (re-send the photo).
   const pendingReceipts = new Map<number, PendingReceipt>();
+
+  // Free-text /add extractions awaiting confirmation, keyed by the bot's own
+  // confirm-keyboard message ID — same first-tap-wins/edit/discard shape as
+  // pendingReceipts, minus the photo (there isn't one).
+  const pendingAddItems = new Map<number, PendingAdd>();
 
   // Missing-ingredient lists for Almost-there recipes, keyed by the bot's own
   // reply message ID — one "add N missing items" decision per message,
@@ -611,6 +629,83 @@ export function createBot(
     await ctx.answerCallbackQuery("Reply to this message with what to fix");
   });
 
+  bot.command("add", async (ctx) => {
+    const inlineText = ctx.match.trim();
+    const repliedText = ctx.message?.reply_to_message?.text?.trim();
+    const text = inlineText.length > 0 ? inlineText : repliedText;
+    if (!text) {
+      await ctx.reply("Usage: /add <items>, or reply to a message listing items with /add");
+      return;
+    }
+
+    let extraction: FreeTextExtraction;
+    try {
+      extraction = await brain.parseFreeTextItems(text, fetchCatalogNames(db));
+    } catch (err) {
+      if (err instanceof BrainUnavailableError) {
+        await ctx.reply(BUSY_MESSAGE);
+        return;
+      }
+      throw err;
+    }
+
+    const sent = await ctx.reply(renderAddPreview(extraction), {
+      reply_markup: buildAddKeyboard(),
+    });
+    pendingAddItems.set(sent.message_id, { extraction, claimed: false });
+  });
+
+  bot.callbackQuery(ADD_CONFIRM, async (ctx) => {
+    const claim = claimPendingAdd(pendingAddItems, ctx);
+    if (!claim) {
+      await ctx.answerCallbackQuery("Already handled");
+      return;
+    }
+
+    try {
+      await confirmAddItems(db, brain, clock, claim.pending.extraction);
+    } catch (err) {
+      if (err instanceof BrainUnavailableError) {
+        // Nothing was written (confirmAddItems only writes after the Brain
+        // call succeeds), so release the claim for a retry, same as the
+        // receipt confirm flow.
+        claim.pending.claimed = false;
+        await ctx.answerCallbackQuery(BUSY_MESSAGE);
+        return;
+      }
+      throw err;
+    }
+
+    pendingAddItems.delete(claim.messageId);
+    await ctx.answerCallbackQuery("Saved");
+    await ctx.editMessageReplyMarkup();
+  });
+
+  bot.callbackQuery(ADD_DISCARD, async (ctx) => {
+    const claim = claimPendingAdd(pendingAddItems, ctx);
+    if (!claim) {
+      await ctx.answerCallbackQuery("Already handled");
+      return;
+    }
+
+    pendingAddItems.delete(claim.messageId);
+    await ctx.answerCallbackQuery("Discarded");
+    await ctx.editMessageReplyMarkup();
+  });
+
+  bot.callbackQuery(ADD_EDIT, async (ctx) => {
+    const messageId = ctx.callbackQuery.message?.message_id;
+    const pending = messageId !== undefined ? pendingAddItems.get(messageId) : undefined;
+    if (!pending || pending.claimed) {
+      await ctx.answerCallbackQuery("Already handled");
+      return;
+    }
+
+    // Leaves the pending extraction in place, unclaimed: the reply-to-this-
+    // message handler below is what actually revises it.
+    await ctx.answerCallbackQuery("Reply to this message with what to fix");
+  });
+
   bot.callbackQuery(RECONCILE_KEEP_CALLBACK, async (ctx) => {
     const entryId = Number(ctx.match[1]);
     await ctx.answerCallbackQuery("Kept");
@@ -647,6 +742,40 @@ export function createBot(
     if (replyToMessageId === pendingShoppingMessageId) {
       addManualEntry(db, clock, ctx.message.text);
       await ctx.reply(renderList(fetchOpenEntries(db)));
+      return;
+    }
+
+    const pendingAdd = pendingAddItems.get(replyToMessageId);
+    if (pendingAdd && !pendingAdd.claimed) {
+      // Same claim-for-the-duration-of-the-revision pattern as pendingReceipts
+      // below, minus the photo (there isn't one to re-examine).
+      pendingAdd.claimed = true;
+
+      let revised: FreeTextExtraction;
+      try {
+        revised = await brain.reviseFreeTextItems(
+          pendingAdd.extraction,
+          ctx.message.text,
+          fetchCatalogNames(db),
+        );
+      } catch (err) {
+        pendingAdd.claimed = false;
+        if (err instanceof BrainUnavailableError) {
+          await ctx.reply(BUSY_MESSAGE);
+          return;
+        }
+        throw err;
+      }
+
+      pendingAdd.extraction = revised;
+      pendingAdd.claimed = false;
+
+      await ctx.api.editMessageText(
+        ctx.chat.id,
+        replyToMessageId,
+        renderAddPreview(pendingAdd.extraction),
+        { reply_markup: buildAddKeyboard() },
+      );
       return;
     }
 
@@ -713,6 +842,23 @@ function claimPendingReceipt(
   return { messageId, pending };
 }
 
+// Same synchronous check-and-claim as claimPendingReceipt, for the /add flow.
+function claimPendingAdd(
+  pendingAddItems: Map<number, PendingAdd>,
+  ctx: Context,
+): { messageId: number; pending: PendingAdd } | undefined {
+  const messageId = ctx.callbackQuery?.message?.message_id;
+  if (messageId === undefined) {
+    return undefined;
+  }
+  const pending = pendingAddItems.get(messageId);
+  if (!pending || pending.claimed) {
+    return undefined;
+  }
+  pending.claimed = true;
+  return { messageId, pending };
+}
+
 function createDefaultPhotoDownloader(token: string): PhotoDownloader {
   return async (ctx) => {
     const photos = ctx.message?.photo;
@@ -740,6 +886,13 @@ function buildReceiptKeyboard(): InlineKeyboard {
     .text("✅ Confirm", RECEIPT_CONFIRM)
     .text("✏️ Edit", RECEIPT_EDIT)
     .text("❌ Discard", RECEIPT_DISCARD);
+}
+
+function buildAddKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✅ Confirm", ADD_CONFIRM)
+    .text("✏️ Edit", ADD_EDIT)
+    .text("❌ Discard", ADD_DISCARD);
 }
 
 function buildAddMissingKeyboard(missingCount: number): InlineKeyboard {

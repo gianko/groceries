@@ -132,4 +132,38 @@ describe("GeminiBrain", () => {
 
     expect(result).toEqual([{ name: "milk", days: 7 }]);
   });
+
+  it("parseFreeTextItems returns the parsed lines and includes the Catalog and free text in the prompt", async () => {
+    const parsed = {
+      lines: [{ name: "baked beans", category: "food" as const, quantity: 2, unit: null }],
+    };
+    const generateContent = vi.fn().mockResolvedValue(jsonResponse(parsed));
+    const brain = createBrain({ generateContent });
+
+    const result = await brain.parseFreeTextItems("2 tins baked beans", ["milk"]);
+
+    expect(result).toEqual(parsed);
+    const promptText = generateContent.mock.calls[0]![0].contents[0].parts[0].text as string;
+    expect(promptText).toContain("2 tins baked beans");
+    expect(promptText).toContain("milk");
+  });
+
+  it("reviseFreeTextItems returns the revised lines and includes the correction and current list in the prompt", async () => {
+    const current = {
+      lines: [{ name: "baked beans", category: "food" as const, quantity: 2, unit: null }],
+    };
+    const revised = {
+      lines: [{ name: "chopped tomatoes", category: "food" as const, quantity: 2, unit: null }],
+    };
+    const generateContent = vi.fn().mockResolvedValue(jsonResponse(revised));
+    const brain = createBrain({ generateContent });
+
+    const result = await brain.reviseFreeTextItems(current, "it's chopped tomatoes", ["milk"]);
+
+    expect(result).toEqual(revised);
+    const promptText = generateContent.mock.calls[0]![0].contents[0].parts[0].text as string;
+    expect(promptText).toContain("it's chopped tomatoes");
+    expect(promptText).toContain("baked beans");
+    expect(promptText).toContain("milk");
+  });
 });

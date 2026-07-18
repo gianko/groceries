@@ -14,6 +14,12 @@ export interface Brain {
   ): Promise<ReceiptExtraction>;
   suggestRecipes(input: RecipeContext): Promise<RecipeSuggestion[]>;
   estimateShelfLife(productNames: string[]): Promise<ShelfLifeEstimate[]>;
+  parseFreeTextItems(text: string, catalogNames: string[]): Promise<FreeTextExtraction>;
+  reviseFreeTextItems(
+    current: FreeTextExtraction,
+    correction: string,
+    catalogNames: string[],
+  ): Promise<FreeTextExtraction>;
 }
 
 export const receiptLineSchema = z.object({
@@ -30,6 +36,21 @@ export const receiptExtractionSchema = z.object({
   lines: z.array(receiptLineSchema),
 });
 export type ReceiptExtraction = z.infer<typeof receiptExtractionSchema>;
+
+// No rawName field — free text isn't a receipt string, so no Raw Name is
+// ever mapped from this shape (per the ticket, /add never writes rawNameMap).
+export const freeTextLineSchema = z.object({
+  name: z.string(),
+  category: z.enum(["food", "household"]),
+  quantity: z.number().positive().default(1),
+  unit: z.string().nullable().optional(),
+});
+export type FreeTextLine = z.infer<typeof freeTextLineSchema>;
+
+export const freeTextExtractionSchema = z.object({
+  lines: z.array(freeTextLineSchema),
+});
+export type FreeTextExtraction = z.infer<typeof freeTextExtractionSchema>;
 
 export const shelfLifeEstimateSchema = z.object({
   name: z.string(),

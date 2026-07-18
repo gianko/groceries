@@ -1,5 +1,6 @@
 import type {
   Brain,
+  FreeTextExtraction,
   ReceiptExtraction,
   RecipeContext,
   RecipeSuggestion,
@@ -23,6 +24,8 @@ export class BrainFake implements Brain {
   private reviseReceiptQueue: ScriptedResult<ReceiptExtraction>[] = [];
   private suggestRecipesQueue: ScriptedResult<RecipeSuggestion[]>[] = [];
   private estimateShelfLifeQueue: ScriptedResult<ShelfLifeEstimate[]>[] = [];
+  private parseFreeTextItemsQueue: ScriptedResult<FreeTextExtraction>[] = [];
+  private reviseFreeTextItemsQueue: ScriptedResult<FreeTextExtraction>[] = [];
 
   scriptExtractReceipt(...results: ScriptedResult<ReceiptExtraction>[]): void {
     this.extractReceiptQueue = results;
@@ -38,6 +41,14 @@ export class BrainFake implements Brain {
 
   scriptEstimateShelfLife(...results: ScriptedResult<ShelfLifeEstimate[]>[]): void {
     this.estimateShelfLifeQueue = results;
+  }
+
+  scriptParseFreeTextItems(...results: ScriptedResult<FreeTextExtraction>[]): void {
+    this.parseFreeTextItemsQueue = results;
+  }
+
+  scriptReviseFreeTextItems(...results: ScriptedResult<FreeTextExtraction>[]): void {
+    this.reviseFreeTextItemsQueue = results;
   }
 
   async extractReceipt(photo: Buffer, catalogNames: string[]): Promise<ReceiptExtraction> {
@@ -63,6 +74,20 @@ export class BrainFake implements Brain {
   async estimateShelfLife(productNames: string[]): Promise<ShelfLifeEstimate[]> {
     this.calls.push({ method: "estimateShelfLife", args: [productNames] });
     return consume(this.estimateShelfLifeQueue);
+  }
+
+  async parseFreeTextItems(text: string, catalogNames: string[]): Promise<FreeTextExtraction> {
+    this.calls.push({ method: "parseFreeTextItems", args: [text, catalogNames] });
+    return consume(this.parseFreeTextItemsQueue);
+  }
+
+  async reviseFreeTextItems(
+    current: FreeTextExtraction,
+    correction: string,
+    catalogNames: string[],
+  ): Promise<FreeTextExtraction> {
+    this.calls.push({ method: "reviseFreeTextItems", args: [current, correction, catalogNames] });
+    return consume(this.reviseFreeTextItemsQueue);
   }
 }
 
