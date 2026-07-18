@@ -45,7 +45,7 @@ describe("bot auth middleware", () => {
         method: "sendMessage",
         payload: expect.objectContaining({
           chat_id: GROUP_CHAT_ID,
-          text: "pong",
+          text: "pong (commit unknown, built unknown)",
         }),
       },
     ]);

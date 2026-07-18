@@ -9,6 +9,7 @@ import {
   type ReceiptExtraction,
   type RecipeSuggestion,
 } from "./brain.js";
+import buildInfo from "./build-info.json" with { type: "json" };
 import { type Clock, systemClock } from "./clock.js";
 import type { Config } from "./config.js";
 import {
@@ -255,7 +256,7 @@ export function createBot(
   });
 
   bot.command("ping", async (ctx) => {
-    await ctx.reply("pong");
+    await ctx.reply(`pong (commit ${buildInfo.commit}, built ${buildInfo.buildDate})`);
   });
 
   bot.command("inventory", async (ctx) => {
