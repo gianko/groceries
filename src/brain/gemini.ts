@@ -14,7 +14,7 @@ import {
   shelfLifeEstimatesSchema,
 } from "../brain.js";
 
-const DEFAULT_MODEL = "gemini-2.5-flash";
+const DEFAULT_MODEL = "gemini-3.5-flash";
 // One retry on parse failure (handled in generateJson) plus exponential
 // backoff on 429/5xx for each individual call (handled here).
 const BACKOFF_DELAYS_MS = [500, 1500];
