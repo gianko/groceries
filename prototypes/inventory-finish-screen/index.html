@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- PROTOTYPE — throwaway. Issue #24: what should the inventory list + -->
+<!-- finish-confirmation screen look like for the future Telegram Mini App? -->
+<!-- Three variants, switchable via ?variant=A|B|C, on a single throwaway route. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Prototype — Inventory + Finish (#24)</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f4f2;
+    --card: #ffffff;
+    --ink: #1c1c1e;
+    --muted: #8a8a8e;
+    --line: #e5e5e7;
+    --red: #ff3b30;
+    --amber: #ff9500;
+    --green: #34c759;
+    --grey: #c7c7cc;
+    --accent: #007aff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #app {
+    max-width: 420px;
+    margin: 0 auto;
+    min-height: 100vh;
+    background: var(--bg);
+    padding-bottom: 96px;
+    position: relative;
+  }
+  header.screen-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: rgba(244,244,242,0.92);
+    backdrop-filter: blur(8px);
+    padding: 16px 16px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  header.screen-head h1 {
+    margin: 0 0 2px;
+    font-size: 20px;
+    font-weight: 700;
+  }
+  header.screen-head p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+
+  /* ---------- Toast / undo (shared) ---------- */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 80px;
+    transform: translate(-50%, 20px);
+    background: #1c1c1e;
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 40;
+    max-width: 380px;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    pointer-events: auto;
+  }
+  .toast button {
+    background: none;
+    border: none;
+    color: #5ac8fa;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  /* =========================================================
+     VARIANT A — Swipe-to-finish, grouped by urgency
+     ========================================================= */
+  .a-section-head {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 18px 16px 6px;
+  }
+  .a-list {
+    background: var(--card);
+    margin: 0 12px;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .a-row-wrap {
+    position: relative;
+    overflow: hidden;
+    border-bottom: 1px solid var(--line);
+  }
+  .a-list .a-row-wrap:last-child { border-bottom: none; }
+  .a-action {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    justify-content: flex-end;
+    align-items: stretch;
+  }
+  .a-action button {
+    width: 92px;
+    border: none;
+    background: var(--green);
+    color: #fff;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .a-row {
+    position: relative;
+    background: var(--card);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    touch-action: pan-y;
+    transition: transform 0.18s ease;
+    will-change: transform;
+  }
+  .a-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .a-dot.overdue { background: var(--red); }
+  .a-dot.soon { background: var(--amber); }
+  .a-dot.week { background: var(--green); }
+  .a-dot.fresh { background: var(--grey); }
+  .a-main { flex: 1; min-width: 0; }
+  .a-name { font-size: 15px; font-weight: 500; }
+  .a-meta { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+  .a-hint {
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    padding: 10px 16px 0;
+  }
+
+  /* =========================================================
+     VARIANT B — Checklist, grouped by category, batch confirm
+     ========================================================= */
+  .b-section-head {
+    font-size: 13px;
+    font-weight: 700;
+    padding: 18px 16px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .b-list {
+    background: var(--card);
+    margin: 0 12px;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .b-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    user-select: none;
+  }
+  .b-list .b-row:last-child { border-bottom: none; }
+  .b-check {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--grey);
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .b-row.checked .b-check {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .b-check svg { opacity: 0; width: 13px; height: 13px; }
+  .b-row.checked .b-check svg { opacity: 1; }
+  .b-main { flex: 1; min-width: 0; transition: opacity 0.15s ease; }
+  .b-row.checked .b-main { opacity: 0.4; }
+  .b-name { font-size: 15px; font-weight: 500; }
+  .b-row.checked .b-name { text-decoration: line-through; }
+  .b-meta { font-size: 12.5px; color: var(--muted); margin-top: 1px; }
+  .b-expiry-pill {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 20px;
+    flex: none;
+  }
+  .b-expiry-pill.overdue { background: #ffe2e0; color: #c0281c; }
+  .b-expiry-pill.soon { background: #fff1da; color: #a0570b; }
+  .b-expiry-pill.week { background: #e2f7e7; color: #1c7a31; }
+  .b-batchbar {
+    position: fixed;
+    left: 50%;
+    bottom: 76px;
+    transform: translate(-50%, 24px);
+    width: calc(100% - 32px);
+    max-width: 388px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 14px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 30;
+  }
+  .b-batchbar.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+  .b-batchbar span { font-size: 14px; font-weight: 600; }
+  .b-batchbar .b-actions { display: flex; gap: 16px; }
+  .b-batchbar button {
+    background: none;
+    border: none;
+    color: #fff;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0;
+  }
+  .b-batchbar button.cancel { opacity: 0.75; font-weight: 500; }
+
+  /* =========================================================
+     VARIANT C — Card grid, tap-to-finish, optimistic + undo
+     ========================================================= */
+  .c-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 14px 12px;
+  }
+  .c-card {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 12px 12px 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border-top: 4px solid var(--grey);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  .c-card.overdue { border-top-color: var(--red); }
+  .c-card.soon { border-top-color: var(--amber); }
+  .c-card.week { border-top-color: var(--green); }
+  .c-card.fresh { border-top-color: var(--grey); }
+  .c-card.leaving { transform: scale(0.9); opacity: 0; }
+  .c-cat {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .c-name {
+    font-size: 14.5px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+  .c-meta {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .c-finish {
+    margin-top: 2px;
+    border: none;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 8px 0;
+    border-radius: 9px;
+    cursor: pointer;
+  }
+  .c-finish:active { background: var(--green); color: #fff; }
+
+  /* ---------- Floating variant switcher (shared) ---------- */
+  #switcher {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1c1c1e;
+    color: #fff;
+    border-radius: 999px;
+    padding: 8px 6px 8px 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    z-index: 50;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #switcher button.nav {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #switcher button.nav:hover { background: rgba(255,255,255,0.22); }
+  #switcher .label {
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"><span id="toast-text"></span><button id="toast-undo">Undo</button></div>
+
+<div id="switcher">
+  <button class="nav" id="prev" aria-label="Previous variant">‹</button>
+  <span class="label" id="switcher-label"></span>
+  <button class="nav" id="next" aria-label="Next variant">›</button>
+</div>
+
+<script>
+// ---------------------------------------------------------------
+// Seed data — shape mirrors src/inventory.ts InventoryLot, dates
+// relative to "today" = 2026-07-19 (the repo's current date).
+// ---------------------------------------------------------------
+const TODAY = new Date("2026-07-19");
+function daysFrom(offset) {
+  const d = new Date(TODAY);
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+const SEED = [
+  { lotId: 1, productName: "Semi-skimmed milk", category: "food", quantity: 2, unit: "L", estExpiry: daysFrom(-1) },
+  { lotId: 2, productName: "Baked beans", category: "food", quantity: 3, unit: "tin", estExpiry: daysFrom(1) },
+  { lotId: 3, productName: "Free-range eggs", category: "food", quantity: 6, unit: null, estExpiry: daysFrom(2) },
+  { lotId: 4, productName: "Cherry tomatoes", category: "food", quantity: 1, unit: "punnet", estExpiry: daysFrom(2) },
+  { lotId: 5, productName: "Sourdough bread", category: "food", quantity: 1, unit: "loaf", estExpiry: daysFrom(4) },
+  { lotId: 6, productName: "Chicken breast", category: "food", quantity: 500, unit: "g", estExpiry: daysFrom(3) },
+  { lotId: 7, productName: "Basmati rice", category: "food", quantity: 1, unit: "kg", estExpiry: daysFrom(180) },
+  { lotId: 8, productName: "Tinned chopped tomatoes", category: "food", quantity: 4, unit: "tin", estExpiry: daysFrom(240) },
+  { lotId: 9, productName: "Cheddar cheese", category: "food", quantity: 200, unit: "g", estExpiry: daysFrom(9) },
+  { lotId: 10, productName: "Frozen peas", category: "food", quantity: 1, unit: "kg", estExpiry: null },
+  { lotId: 11, productName: "Washing-up liquid", category: "household", quantity: 1, unit: null, estExpiry: null },
+  { lotId: 12, productName: "Bin bags", category: "household", quantity: 1, unit: "roll", estExpiry: null },
+  { lotId: 13, productName: "Kitchen roll", category: "household", quantity: 2, unit: null, estExpiry: null },
+  { lotId: 14, productName: "Dishwasher tablets", category: "household", quantity: 18, unit: null, estExpiry: null },
+];
+
+function urgencyOf(estExpiry) {
+  if (!estExpiry) return "fresh";
+  const diff = Math.round((new Date(estExpiry) - TODAY) / 86400000);
+  if (diff < 0) return "overdue";
+  if (diff <= 2) return "soon";
+  if (diff <= 7) return "week";
+  return "fresh";
+}
+
+function fmtQty(lot) {
+  return lot.unit ? `${lot.quantity} ${lot.unit}` : `${lot.quantity}`;
+}
+
+function fmtExpiry(estExpiry) {
+  if (!estExpiry) return "no expiry tracked";
+  const diff = Math.round((new Date(estExpiry) - TODAY) / 86400000);
+  if (diff < 0) return `expired ${-diff}d ago`;
+  if (diff === 0) return "expires today";
+  if (diff === 1) return "expires tomorrow";
+  return `expires in ${diff}d`;
+}
+
+// mutable working copy so "finishing" a lot in one variant doesn't
+// bleed into another if the user flips back and forth
+let lots = SEED.map((l) => ({ ...l }));
+
+function removeLot(lotId) {
+  lots = lots.filter((l) => l.lotId !== lotId);
+}
+function restoreLot(lot) {
+  lots.push(lot);
+}
+
+// ---------------------------------------------------------------
+// Toast / undo helper (shared across variants)
+// ---------------------------------------------------------------
+const toastEl = document.getElementById("toast");
+const toastText = document.getElementById("toast-text");
+const toastUndo = document.getElementById("toast-undo");
+let toastTimer = null;
+
+function showToast(message, onUndo) {
+  clearTimeout(toastTimer);
+  toastText.textContent = message;
+  toastEl.classList.add("show");
+  toastUndo.onclick = () => {
+    toastEl.classList.remove("show");
+    clearTimeout(toastTimer);
+    onUndo();
+  };
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 4000);
+}
+
+// =========================================================
+// VARIANT A — swipe-to-finish, grouped by urgency
+// =========================================================
+function renderA(root) {
+  root.innerHTML = "";
+
+  const head = document.createElement("header");
+  head.className = "screen-head";
+  head.innerHTML = `<h1>Pantry</h1><p>Swipe a row left to finish it</p>`;
+  root.appendChild(head);
+
+  const buckets = [
+    { key: "overdue", label: "Overdue" },
+    { key: "soon", label: "Expiring soon" },
+    { key: "week", label: "This week" },
+    { key: "fresh", label: "Fresh / no expiry" },
+  ];
+
+  if (lots.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Pantry's empty.";
+    root.appendChild(empty);
+    return;
+  }
+
+  for (const bucket of buckets) {
+    const items = lots
+      .filter((l) => urgencyOf(l.estExpiry) === bucket.key)
+      .sort((a, b) => a.productName.localeCompare(b.productName));
+    if (items.length === 0) continue;
+
+    const sectionHead = document.createElement("div");
+    sectionHead.className = "a-section-head";
+    sectionHead.textContent = `${bucket.label} · ${items.length}`;
+    root.appendChild(sectionHead);
+
+    const list = document.createElement("div");
+    list.className = "a-list";
+
+    items.forEach((lot) => {
+      const wrap = document.createElement("div");
+      wrap.className = "a-row-wrap";
+
+      const action = document.createElement("div");
+      action.className = "a-action";
+      action.innerHTML = `<button>Finished</button>`;
+      action.querySelector("button").addEventListener("click", () => {
+        removeLot(lot.lotId);
+        showToast(`${lot.productName} finished`, () => { restoreLot(lot); renderA(root); });
+        renderA(root);
+      });
+
+      const row = document.createElement("div");
+      row.className = "a-row";
+      row.innerHTML = `
+        <span class="a-dot ${bucket.key}"></span>
+        <div class="a-main">
+          <div class="a-name">${lot.productName}</div>
+          <div class="a-meta">${fmtQty(lot)} · ${fmtExpiry(lot.estExpiry)}</div>
+        </div>
+      `;
+
+      wireSwipe(row, wrap);
+
+      wrap.appendChild(action);
+      wrap.appendChild(row);
+      list.appendChild(wrap);
+    });
+
+    root.appendChild(list);
+  }
+
+  const hint = document.createElement("div");
+  hint.className = "a-hint";
+  hint.textContent = "← swipe";
+  root.appendChild(hint);
+}
+
+function wireSwipe(row, wrap) {
+  const REVEAL = -92;
+  let startX = 0;
+  let currentX = 0;
+  let dragging = false;
+  let revealed = false;
+
+  function setX(x) {
+    currentX = x;
+    row.style.transform = `translateX(${x}px)`;
+  }
+
+  row.addEventListener("pointerdown", (e) => {
+    // close any other open row first
+    document.querySelectorAll(".a-row").forEach((r) => {
+      if (r !== row) r.style.transform = "translateX(0px)";
+    });
+    dragging = true;
+    startX = e.clientX - currentX;
+    row.setPointerCapture(e.pointerId);
+    row.style.transition = "none";
+  });
+  row.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    let x = e.clientX - startX;
+    x = Math.max(REVEAL, Math.min(0, x));
+    setX(x);
+  });
+  function end() {
+    if (!dragging) return;
+    dragging = false;
+    row.style.transition = "transform 0.18s ease";
+    if (currentX < REVEAL / 2) {
+      setX(REVEAL);
+      revealed = true;
+    } else {
+      setX(0);
+      revealed = false;
+    }
+  }
+  row.addEventListener("pointerup", end);
+  row.addEventListener("pointercancel", end);
+}
+
+// =========================================================
+// VARIANT B — checklist, grouped by category, batch confirm
+// =========================================================
+let checked = new Set();
+
+function renderB(root) {
+  root.innerHTML = "";
+  checked = new Set([...checked].filter((id) => lots.some((l) => l.lotId === id)));
+
+  const head = document.createElement("header");
+  head.className = "screen-head";
+  head.innerHTML = `<h1>Pantry</h1><p>Tap to mark finished, then confirm</p>`;
+  root.appendChild(head);
+
+  if (lots.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Pantry's empty.";
+    root.appendChild(empty);
+    return;
+  }
+
+  const groups = [
+    { key: "food", label: "🍎 Food" },
+    { key: "household", label: "🧽 Household" },
+  ];
+
+  for (const group of groups) {
+    const items = lots
+      .filter((l) => l.category === group.key)
+      .sort((a, b) => {
+        const ua = urgencyOf(a.estExpiry), ub = urgencyOf(b.estExpiry);
+        const order = { overdue: 0, soon: 1, week: 2, fresh: 3 };
+        return order[ua] - order[ub] || a.productName.localeCompare(b.productName);
+      });
+    if (items.length === 0) continue;
+
+    const sectionHead = document.createElement("div");
+    sectionHead.className = "b-section-head";
+    sectionHead.textContent = group.label;
+    root.appendChild(sectionHead);
+
+    const list = document.createElement("div");
+    list.className = "b-list";
+
+    items.forEach((lot) => {
+      const urgency = urgencyOf(lot.estExpiry);
+      const row = document.createElement("div");
+      row.className = "b-row" + (checked.has(lot.lotId) ? " checked" : "");
+      row.innerHTML = `
+        <div class="b-check">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="b-main">
+          <div class="b-name">${lot.productName}</div>
+          <div class="b-meta">${fmtQty(lot)}</div>
+        </div>
+        ${lot.estExpiry ? `<span class="b-expiry-pill ${urgency}">${fmtExpiry(lot.estExpiry)}</span>` : ""}
+      `;
+      row.addEventListener("click", () => {
+        if (checked.has(lot.lotId)) checked.delete(lot.lotId);
+        else checked.add(lot.lotId);
+        renderB(root);
+      });
+      list.appendChild(row);
+    });
+
+    root.appendChild(list);
+  }
+
+  const bar = document.createElement("div");
+  bar.className = "b-batchbar" + (checked.size > 0 ? " show" : "");
+  bar.innerHTML = `
+    <span>${checked.size} selected</span>
+    <div class="b-actions">
+      <button class="cancel" id="b-cancel">Cancel</button>
+      <button id="b-confirm">Confirm finished</button>
+    </div>
+  `;
+  root.appendChild(bar);
+
+  if (checked.size > 0) {
+    bar.querySelector("#b-cancel").addEventListener("click", () => {
+      checked.clear();
+      renderB(root);
+    });
+    bar.querySelector("#b-confirm").addEventListener("click", () => {
+      const finishedLots = lots.filter((l) => checked.has(l.lotId));
+      finishedLots.forEach((l) => removeLot(l.lotId));
+      const names = finishedLots.map((l) => l.productName).join(", ");
+      checked.clear();
+      showToast(`Finished: ${names}`, () => { finishedLots.forEach(restoreLot); renderB(root); });
+      renderB(root);
+    });
+  }
+}
+
+// =========================================================
+// VARIANT C — card grid, tap-to-finish, optimistic + undo
+// =========================================================
+function renderC(root) {
+  root.innerHTML = "";
+
+  const head = document.createElement("header");
+  head.className = "screen-head";
+  head.innerHTML = `<h1>Pantry</h1><p>Tap Finished on a card — undo if it was a mistake</p>`;
+  root.appendChild(head);
+
+  if (lots.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Pantry's empty.";
+    root.appendChild(empty);
+    return;
+  }
+
+  const order = { overdue: 0, soon: 1, week: 2, fresh: 3 };
+  const sorted = [...lots].sort((a, b) => {
+    const ua = urgencyOf(a.estExpiry), ub = urgencyOf(b.estExpiry);
+    return order[ua] - order[ub] || a.productName.localeCompare(b.productName);
+  });
+
+  const grid = document.createElement("div");
+  grid.className = "c-grid";
+
+  sorted.forEach((lot) => {
+    const urgency = urgencyOf(lot.estExpiry);
+    const card = document.createElement("div");
+    card.className = `c-card ${urgency}`;
+    card.innerHTML = `
+      <span class="c-cat">${lot.category === "food" ? "Food" : "Household"}</span>
+      <div class="c-name">${lot.productName}</div>
+      <div class="c-meta">${fmtQty(lot)}<br>${fmtExpiry(lot.estExpiry)}</div>
+      <button class="c-finish">Finished</button>
+    `;
+    card.querySelector(".c-finish").addEventListener("click", () => {
+      card.classList.add("leaving");
+      setTimeout(() => {
+        removeLot(lot.lotId);
+        showToast(`${lot.productName} finished`, () => { restoreLot(lot); renderC(root); });
+        renderC(root);
+      }, 150);
+    });
+    grid.appendChild(card);
+  });
+
+  root.appendChild(grid);
+}
+
+// ---------------------------------------------------------------
+// Switcher plumbing
+// ---------------------------------------------------------------
+const VARIANTS = {
+  A: { render: renderA, name: "Swipe list · urgency-first" },
+  B: { render: renderB, name: "Checklist · batch confirm" },
+  C: { render: renderC, name: "Card grid · tap + undo" },
+};
+const KEYS = Object.keys(VARIANTS);
+
+function currentVariant() {
+  const v = new URLSearchParams(location.search).get("variant");
+  return VARIANTS[v] ? v : "A";
+}
+
+function setVariant(key) {
+  const url = new URL(location.href);
+  url.searchParams.set("variant", key);
+  history.replaceState(null, "", url);
+  render();
+}
+
+function render() {
+  const key = currentVariant();
+  document.getElementById("switcher-label").textContent = `${key} — ${VARIANTS[key].name}`;
+  VARIANTS[key].render(document.getElementById("app"));
+}
+
+document.getElementById("prev").addEventListener("click", () => {
+  const i = KEYS.indexOf(currentVariant());
+  setVariant(KEYS[(i - 1 + KEYS.length) % KEYS.length]);
+});
+document.getElementById("next").addEventListener("click", () => {
+  const i = KEYS.indexOf(currentVariant());
+  setVariant(KEYS[(i + 1) % KEYS.length]);
+});
+document.addEventListener("keydown", (e) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
+  if (e.key === "ArrowLeft") document.getElementById("prev").click();
+  if (e.key === "ArrowRight") document.getElementById("next").click();
+});
+
+render();
+</script>
+</body>
+</html>
