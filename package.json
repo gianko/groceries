@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "postinstall": "lefthook install"
+    "postinstall": "lefthook install",
+    "prototype:cook-screen-instructions": "open src/prototype/cook-screen-instructions.PROTOTYPE.html"
   },
   "dependencies": {
     "@google/genai": "^2.12.0",

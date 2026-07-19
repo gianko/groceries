@@ -1,0 +1,409 @@
+<!--
+  PROTOTYPE — throwaway, for issue #33 (reopened; part of #19, feeds #34).
+  Question: given #33's cook screen already settled on a modal recipe-detail
+  screen (variant A, see prototype/cook-screen branch), where and how should
+  recipe instructions/steps render inside that modal? The original #33
+  verdict shipped an ingredients-only detail screen because no
+  instructions/steps field existed anywhere in the data model — this
+  prototype assumes that field now exists (RecipeSuggestion/CookRecipe gain
+  an `instructions: string[]` field) and asks purely a layout question.
+
+  Three variants, all reusing #33's winning modal chrome unchanged
+  (full-screen slide-up modal, ingredient dot rows, primary/ghost buttons):
+
+    A — Inline stacked: a numbered "How to cook it" section sits directly
+        below the ingredients list, always visible, single flat scroll.
+    B — Tabs: "Ingredients" / "Steps" segmented tabs at the top of the
+        modal body; only one pane visible at a time.
+    C — Collapsed accordion: ingredients stay the whole screen by default
+        (matching today's minimalist verdict most closely); a "How to cook
+        it" row expands inline on tap, collapsed on open.
+
+  Also demonstrates two data-availability edge cases every variant must
+  handle, since they're real per the reopened ticket:
+    - Freshly-suggested recipes have instructions bundled immediately
+      (assume the same Brain call that suggests the recipe also returns
+      its steps — no extra round trip modeled here).
+    - A saved Favorite cooked before this feature existed has no stored
+      instructions (`instructions: null`) — each variant shows its own
+      fallback for that case ("Steps not saved for this recipe").
+
+  Switchable via ?variant=A|B|C (defaults to A), or the floating bottom bar
+  / left-right arrow keys.
+
+  No backend: all state is in-memory mock data extending the shapes in
+  src/cook.ts (CookRecipe) with a hypothetical `instructions` field.
+
+  Run it: just open this file directly in a browser (or
+  `pnpm run prototype:cook-screen-instructions`).
+  DO NOT promote this file itself to production — fold the winning variant
+  into real code, then move this whole thing to the throwaway branch.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROTOTYPE — recipe instructions</title>
+<style>
+  :root {
+    --bg: #f4f3ef;
+    --card: #ffffff;
+    --ink: #1c1c1c;
+    --muted: #6b6b66;
+    --line: #e6e4dd;
+    --accent: #2f7a4f;
+    --accent-soft: #e4f2e9;
+    --warn: #b3541e;
+    --warn-soft: #fbe9dd;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    justify-content: center;
+  }
+  #phone {
+    width: 100%;
+    max-width: 430px;
+    min-height: 100vh;
+    background: var(--card);
+    box-shadow: 0 0 40px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  header.top {
+    padding: 14px 16px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px;
+    position: sticky; top: 0; background: var(--card); z-index: 5;
+  }
+  header.top .title { font-weight: 600; font-size: 1rem; }
+  .back-btn {
+    background: none; border: none; font-size: 1.2rem; cursor: pointer;
+    color: var(--ink); padding: 0;
+  }
+  main { flex: 1; padding: 14px 16px 100px; overflow-y: auto; }
+  .section-title {
+    font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); margin: 18px 0 6px;
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  /* recipe picker (simple entry list, not the point of this prototype) */
+  ul.rows { list-style: none; margin: 0; padding: 0; }
+  li.recipe-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 4px; border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  li.recipe-row:last-child { border-bottom: none; }
+  .r-title { flex: 1; font-size: 0.95rem; font-weight: 600; }
+  .r-sub { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
+  .r-chev { color: var(--muted); }
+
+  /* ingredient rows (shared, unchanged from #33's modal) */
+  .ing-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 0.9rem;
+  }
+  .ing-row:last-child { border-bottom: none; }
+  .ing-dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; flex: none; color: white; background: var(--accent);
+  }
+  .ing-name { flex: 1; }
+  .ing-qty { font-size: 0.78rem; color: var(--muted); }
+
+  .primary-btn {
+    display: block; width: 100%; padding: 13px; border: none;
+    border-radius: 10px; background: var(--ink); color: white;
+    font-size: 0.92rem; font-weight: 600; cursor: pointer; margin-top: 14px;
+  }
+
+  /* step rows (shared numbered-list look, used by A and C) */
+  ol.steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+  ol.steps li {
+    display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line);
+    font-size: 0.9rem; line-height: 1.4;
+  }
+  ol.steps li:last-child { border-bottom: none; }
+  ol.steps li::before {
+    counter-increment: step; content: counter(step);
+    width: 22px; height: 22px; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-size: 0.78rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex: none;
+  }
+  .steps-empty {
+    font-size: 0.85rem; color: var(--muted); background: var(--warn-soft);
+    border-radius: 10px; padding: 10px 12px; margin-top: 4px;
+  }
+  .skeleton-line {
+    height: 12px; border-radius: 6px; background: var(--line);
+    margin: 8px 0; animation: pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* ---------- Variant A: inline stacked ---------- */
+  /* no extra styling needed — reuses .section-title + ol.steps as-is */
+
+  /* ---------- Variant B: tabs ---------- */
+  .b-tabs {
+    display: flex; gap: 6px; margin-bottom: 10px; border-bottom: 1px solid var(--line);
+  }
+  .b-tab {
+    padding: 8px 4px; font-size: 0.85rem; font-weight: 600; color: var(--muted);
+    cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .b-tab.active { color: var(--ink); border-bottom-color: var(--ink); }
+  .b-tab .count { font-weight: 400; color: var(--muted); font-size: 0.78rem; }
+
+  /* ---------- Variant C: collapsed accordion ---------- */
+  .c-toggle {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 4px; border-top: 1px solid var(--line); margin-top: 14px;
+    cursor: pointer; font-size: 0.9rem; font-weight: 600;
+  }
+  .c-toggle .chev { color: var(--muted); transition: transform 0.15s ease; font-weight: 400; }
+  .c-toggle.open .chev { transform: rotate(90deg); }
+  .c-body { padding: 4px 0 4px; }
+
+  /* Floating prototype switcher */
+  #switcher {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: #16181d; color: #fff; border-radius: 999px;
+    padding: 8px 6px 8px 14px; display: flex; align-items: center; gap: 10px;
+    font-family: ui-monospace, monospace; font-size: 0.78rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35); z-index: 50;
+  }
+  #switcher button {
+    background: #2a2d35; color: #fff; border: none; border-radius: 50%;
+    width: 30px; height: 30px; font-size: 1rem; cursor: pointer;
+  }
+  #switcher .label { min-width: 190px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="phone"></div>
+
+<div id="switcher">
+  <button id="prev" aria-label="Previous variant">←</button>
+  <span class="label" id="switcher-label"></span>
+  <button id="next" aria-label="Next variant">→</button>
+</div>
+
+<script>
+// ==================================================================
+// Mock data — CookRecipe extended with a hypothetical `instructions`
+// field. `null` models a saved Favorite with no stored steps (cooked
+// before this feature existed) — every variant must handle that case.
+// ==================================================================
+const RECIPES = [
+  {
+    id: 1, title: "Tomato pasta", freshlySuggested: true,
+    ingredients: [
+      { name: "Pasta", quantity: 200, unit: "g" },
+      { name: "Tomatoes", quantity: 400, unit: "g" },
+      { name: "Garlic", quantity: 2, unit: "cloves" },
+      { name: "Basil", quantity: 10, unit: "g" },
+    ],
+    instructions: [
+      "Bring a large pot of salted water to the boil and cook the pasta until al dente.",
+      "Meanwhile, crush the garlic and soften it in olive oil over medium heat for 1 minute.",
+      "Add the tomatoes, breaking them up, and simmer for 10 minutes.",
+      "Drain the pasta, toss through the sauce, and tear the basil over the top.",
+    ],
+  },
+  {
+    id: 2, title: "Veggie stir fry", freshlySuggested: true,
+    ingredients: [
+      { name: "Rice", quantity: 200, unit: "g" },
+      { name: "Mixed veg", quantity: 300, unit: "g" },
+      { name: "Soy sauce", quantity: 30, unit: "ml" },
+      { name: "Ginger", quantity: 1, unit: "thumb" },
+    ],
+    instructions: [
+      "Cook the rice according to packet instructions.",
+      "Heat a wok until smoking, add the veg and stir-fry for 4-5 minutes.",
+      "Add grated ginger and soy sauce, toss for another minute.",
+      "Serve over the rice.",
+    ],
+  },
+  {
+    // A saved Favorite predating the instructions feature — no stored steps.
+    id: 3, title: "Fish pie", freshlySuggested: false,
+    ingredients: [
+      { name: "White fish", quantity: 400, unit: "g" },
+      { name: "Potatoes", quantity: 600, unit: "g" },
+      { name: "Butter", quantity: 30, unit: "g" },
+    ],
+    instructions: null,
+  },
+];
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s ?? "";
+  return d.innerHTML;
+}
+function fmtQty(q, unit) { return unit ? `${q} ${unit}` : `${q}`; }
+function byId(id) { return RECIPES.find((r) => r.id === id); }
+
+const state = { screen: "list", recipeId: null, tab: "ingredients", stepsOpen: false, loading: false };
+
+function openRecipe(id) {
+  state.recipeId = id;
+  state.screen = "detail";
+  state.tab = "ingredients";
+  state.stepsOpen = false;
+  const recipe = byId(id);
+
+  // Simulate the brief moment before a freshly-suggested recipe's bundled
+  // instructions have rendered — real data arrives with the same response
+  // as the recipe itself (no separate fetch), but the modal opens instantly
+  // on tap while that payload is still being processed/rendered.
+  if (recipe.instructions !== null) {
+    state.loading = true;
+    render();
+    setTimeout(() => { state.loading = false; render(); }, 700);
+  } else {
+    state.loading = false;
+    render();
+  }
+}
+
+function ingredientsHtml(recipe) {
+  return recipe.ingredients.map((i) => `
+    <div class="ing-row">
+      <span class="ing-dot">✓</span>
+      <span class="ing-name">${esc(i.name)}</span>
+      <span class="ing-qty">${fmtQty(i.quantity, i.unit)}</span>
+    </div>`).join("");
+}
+
+function stepsInnerHtml(recipe) {
+  if (state.loading) {
+    return `<div class="skeleton-line" style="width:92%"></div><div class="skeleton-line" style="width:80%"></div><div class="skeleton-line" style="width:88%"></div>`;
+  }
+  if (recipe.instructions === null) {
+    return `<div class="steps-empty">Steps weren't saved for this recipe — it was cooked before instructions were tracked.</div>`;
+  }
+  return `<ol class="steps">` + recipe.instructions.map((s) => `<li>${esc(s)}</li>`).join("") + `</ol>`;
+}
+
+function header(recipe) {
+  return `<header class="top">
+    <button class="back-btn" onclick="state.screen='list'; render();">←</button>
+    <span class="title">${esc(recipe.title)}</span>
+  </header>`;
+}
+
+// ---------- Variant A: inline stacked ----------
+function renderA(recipe) {
+  return header(recipe) + `<main>
+    <div class="section-title">Ingredients</div>
+    ${ingredientsHtml(recipe)}
+    <div class="section-title">How to cook it</div>
+    ${stepsInnerHtml(recipe)}
+    <button class="primary-btn">Cook this</button>
+  </main>`;
+}
+
+// ---------- Variant B: tabs ----------
+function renderB(recipe) {
+  const ingActive = state.tab === "ingredients";
+  return header(recipe) + `<main>
+    <div class="b-tabs">
+      <div class="b-tab ${ingActive ? "active" : ""}" onclick="state.tab='ingredients'; render();">
+        Ingredients <span class="count">${recipe.ingredients.length}</span>
+      </div>
+      <div class="b-tab ${!ingActive ? "active" : ""}" onclick="state.tab='steps'; render();">
+        Steps ${recipe.instructions ? `<span class="count">${recipe.instructions.length}</span>` : ""}
+      </div>
+    </div>
+    ${ingActive ? ingredientsHtml(recipe) : stepsInnerHtml(recipe)}
+    <button class="primary-btn">Cook this</button>
+  </main>`;
+}
+
+// ---------- Variant C: collapsed accordion ----------
+function renderC(recipe) {
+  return header(recipe) + `<main>
+    <div class="section-title">Ingredients</div>
+    ${ingredientsHtml(recipe)}
+    <div class="c-toggle ${state.stepsOpen ? "open" : ""}" onclick="state.stepsOpen = !state.stepsOpen; render();">
+      <span>How to cook it</span>
+      <span class="chev">›</span>
+    </div>
+    ${state.stepsOpen ? `<div class="c-body">${stepsInnerHtml(recipe)}</div>` : ""}
+    <button class="primary-btn">Cook this</button>
+  </main>`;
+}
+
+function renderList() {
+  return `<header class="top"><span class="title">🍳 Cook tonight (prototype picker)</span></header>
+    <main><div class="section-title">Pick a recipe to preview</div>
+    <ul class="rows">${RECIPES.map((r) => `
+      <li class="recipe-row" onclick="openRecipe(${r.id})">
+        <div>
+          <div class="r-title">${esc(r.title)}</div>
+          <div class="r-sub">${r.instructions === null ? "Saved favorite — no stored steps" : "Freshly suggested — steps bundled"}</div>
+        </div>
+        <span class="r-chev">›</span>
+      </li>`).join("")}</ul></main>`;
+}
+
+const VARIANTS = {
+  A: { name: "Inline stacked", render: renderA },
+  B: { name: "Ingredients/Steps tabs", render: renderB },
+  C: { name: "Collapsed accordion", render: renderC },
+};
+const ORDER = ["A", "B", "C"];
+
+function currentVariant() {
+  const params = new URLSearchParams(location.search);
+  const v = params.get("variant");
+  return VARIANTS[v] ? v : "A";
+}
+
+function setVariant(v) {
+  const params = new URLSearchParams(location.search);
+  params.set("variant", v);
+  history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
+  render();
+}
+
+function render() {
+  const v = currentVariant();
+  const root = document.getElementById("phone");
+  if (state.screen === "detail") {
+    root.innerHTML = VARIANTS[v].render(byId(state.recipeId));
+  } else {
+    root.innerHTML = renderList();
+  }
+  document.getElementById("switcher-label").textContent = `${v} — ${VARIANTS[v].name}`;
+}
+
+function cycle(dir) {
+  const v = currentVariant();
+  const idx = ORDER.indexOf(v);
+  setVariant(ORDER[(idx + dir + ORDER.length) % ORDER.length]);
+}
+
+document.getElementById("prev").addEventListener("click", () => cycle(-1));
+document.getElementById("next").addEventListener("click", () => cycle(1));
+document.addEventListener("keydown", (ev) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
+  if (ev.key === "ArrowLeft") cycle(-1);
+  if (ev.key === "ArrowRight") cycle(1);
+});
+
+render();
+</script>
+</body>
+</html>
