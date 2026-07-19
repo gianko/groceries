@@ -1,0 +1,15 @@
+---
+import { fetchInStockLots, groupForDisplay } from "../../../src/inventory.js";
+import InventoryChecklist from "../components/InventoryChecklist";
+import Base from "../layouts/Base.astro";
+import { getDb } from "../lib/webDb.js";
+
+// Server-rendered at request time per #27 — no fetch-on-mount, no client
+// loading state for the initial list.
+const lots = fetchInStockLots(getDb());
+const sections = groupForDisplay(lots);
+---
+
+<Base title="Pantry">
+  <InventoryChecklist client:load food={sections.food} household={sections.household} />
+</Base>

@@ -39,6 +39,28 @@ interface Section {
   lines: { text: string; lotId: number }[];
 }
 
+export interface InventorySections {
+  food: InventoryLot[];
+  household: InventoryLot[];
+}
+
+// The single source of truth for how in-stock lots are grouped/sorted —
+// both the Telegram renderer below and the Mini App's server-rendered page
+// (#27) consume this so the two surfaces never drift apart.
+export function groupForDisplay(lots: InventoryLot[]): InventorySections {
+  const food = lots
+    .filter((lot) => lot.category === "food")
+    .sort(
+      (a, b) =>
+        compareExpiry(a.estExpiry, b.estExpiry) || a.productName.localeCompare(b.productName),
+    );
+  const household = lots
+    .filter((lot) => lot.category === "household")
+    .sort((a, b) => a.productName.localeCompare(b.productName));
+
+  return { food, household };
+}
+
 export function renderInventory(lots: InventoryLot[]): InventoryChunk[] {
   const sections = buildSections(lots);
 
@@ -97,15 +119,7 @@ function capLength(text: string): string {
 }
 
 function buildSections(lots: InventoryLot[]): Section[] {
-  const food = lots
-    .filter((lot) => lot.category === "food")
-    .sort(
-      (a, b) =>
-        compareExpiry(a.estExpiry, b.estExpiry) || a.productName.localeCompare(b.productName),
-    );
-  const household = lots
-    .filter((lot) => lot.category === "household")
-    .sort((a, b) => a.productName.localeCompare(b.productName));
+  const { food, household } = groupForDisplay(lots);
 
   const sections: Section[] = [];
   if (food.length > 0) {

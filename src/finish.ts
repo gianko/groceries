@@ -84,3 +84,42 @@ export function decideAutoRelist(db: Db, productId: number, wantsAutoRelist: boo
     .run();
   return result.changes > 0;
 }
+
+export interface FinishBatchResult {
+  results: { lotId: number; finished: boolean; productName: string }[];
+  autoRelistOffers: { productId: number; productName: string }[];
+}
+
+// The Mini App's batch-confirm bar (#27) calls this once per confirm tap
+// instead of firing N Action calls: one round trip, with the per-lot
+// first-tap-wins race against finishLot still resolved independently for
+// each lot, and the combined Auto-Relist offer assembled here rather than
+// pushed onto the client.
+export function finishBatch(db: Db, clock: Clock, lotIds: number[]): FinishBatchResult {
+  const results: FinishBatchResult["results"] = [];
+  const autoRelistOffers: FinishBatchResult["autoRelistOffers"] = [];
+
+  for (const lotId of lotIds) {
+    const outcome = finishLot(db, clock, lotId);
+    const productName = outcome.productName ?? lookupProductNameForLot(db, lotId);
+    results.push({ lotId, finished: outcome.finished, productName });
+    if (outcome.finished && outcome.offerAutoRelist && outcome.productId !== null) {
+      autoRelistOffers.push({ productId: outcome.productId, productName });
+    }
+  }
+
+  return { results, autoRelistOffers };
+}
+
+// finishLot only returns a productName on success (it never looked the
+// product up on the no-op path); a failed batch entry still needs one for
+// the partial-failure notice, so look it up independent of status.
+function lookupProductNameForLot(db: Db, lotId: number): string {
+  const row = db
+    .select({ productName: products.name })
+    .from(stockLots)
+    .innerJoin(products, eq(stockLots.productId, products.id))
+    .where(eq(stockLots.id, lotId))
+    .get();
+  return row?.productName ?? "unknown item";
+}

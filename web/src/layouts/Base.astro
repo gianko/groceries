@@ -1,0 +1,152 @@
+---
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{title}</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f4f2;
+        --card: #ffffff;
+        --ink: #1c1c1e;
+        --muted: #8a8a8e;
+        --line: #e5e5e7;
+        --accent: #007aff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #app {
+        max-width: 420px;
+        margin: 0 auto;
+        min-height: 100vh;
+        padding-bottom: 96px;
+      }
+      .screen-head {
+        padding: 16px 16px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .screen-head h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+      }
+      .section-head {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+        padding: 18px 16px 6px;
+        margin: 0;
+      }
+      .lot-list {
+        list-style: none;
+        margin: 0 12px;
+        padding: 0;
+        background: var(--card);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      }
+      .lot-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+      li:last-child .lot-row {
+        border-bottom: none;
+      }
+      .lot-name {
+        flex: 1;
+        font-size: 15px;
+      }
+      .lot-meta {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .notice {
+        margin: 12px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: #fff3cd;
+        color: #664d03;
+        font-size: 14px;
+      }
+      .auto-relist-panel {
+        margin: 12px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      }
+      .auto-relist-title {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .auto-relist-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 0;
+      }
+      .auto-relist-actions button {
+        margin-left: 8px;
+        padding: 6px 14px;
+        border-radius: 8px;
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        font-size: 13px;
+      }
+      .confirm-bar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        justify-content: center;
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+        background: rgba(244, 244, 242, 0.92);
+        backdrop-filter: blur(8px);
+        border-top: 1px solid var(--line);
+      }
+      .confirm-bar button {
+        width: 100%;
+        max-width: 388px;
+        padding: 14px;
+        border-radius: 12px;
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        font-size: 16px;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <slot />
+    </div>
+  </body>
+</html>

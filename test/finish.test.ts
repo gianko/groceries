@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { products, shoppingListEntries, stockLots } from "../src/db/schema.js";
 import { createDb } from "../src/db.js";
-import { decideAutoRelist, finishLot } from "../src/finish.js";
+import { decideAutoRelist, finishBatch, finishLot } from "../src/finish.js";
 import { FakeClock } from "./support/fakeClock.js";
 
 const clock = new FakeClock(new Date("2026-01-01T00:00:00Z"));
@@ -115,5 +115,53 @@ describe("decideAutoRelist", () => {
 
     expect(row.autoRelist).toBe(false);
     expect(row.autoRelistAsked).toBe(true);
+  });
+});
+
+describe("finishBatch", () => {
+  it("finishes every lot in the batch and reports each by lotId and productName", () => {
+    const db = createDb();
+    const bread = seedLot(db, { name: "bread" });
+    const eggs = seedLot(db, { name: "eggs" });
+
+    const batch = finishBatch(db, clock, [bread.lotId, eggs.lotId]);
+
+    expect(batch.results).toEqual(
+      expect.arrayContaining([
+        { lotId: bread.lotId, finished: true, productName: "bread" },
+        { lotId: eggs.lotId, finished: true, productName: "eggs" },
+      ]),
+    );
+  });
+
+  it("reports a per-lot failure (with productName) when another process wins the race first", () => {
+    const db = createDb();
+    const milk = seedLot(db, { name: "milk" });
+    finishLot(db, clock, milk.lotId); // simulates a concurrent finish elsewhere
+
+    const batch = finishBatch(db, clock, [milk.lotId]);
+
+    expect(batch.results).toEqual([{ lotId: milk.lotId, finished: false, productName: "milk" }]);
+  });
+
+  it("collects the combined Auto-Relist offer only for newly-eligible, successfully finished products", () => {
+    const db = createDb();
+    const eggs = seedLot(db, { name: "eggs" });
+    const sponges = seedLot(db, { name: "sponges", autoRelistAsked: true });
+    const milk = seedLot(db, { name: "milk", autoRelist: true });
+
+    const batch = finishBatch(db, clock, [eggs.lotId, sponges.lotId, milk.lotId]);
+
+    expect(batch.autoRelistOffers).toEqual([{ productId: eggs.productId, productName: "eggs" }]);
+  });
+
+  it("does not offer Auto-Relist for a lot that failed to finish", () => {
+    const db = createDb();
+    const eggs = seedLot(db, { name: "eggs" });
+    finishLot(db, clock, eggs.lotId);
+
+    const batch = finishBatch(db, clock, [eggs.lotId]);
+
+    expect(batch.autoRelistOffers).toEqual([]);
   });
 });

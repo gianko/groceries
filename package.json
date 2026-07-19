@@ -12,6 +12,10 @@
     "start": "node --enable-source-maps dist/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
+    "web:dev": "cd web && astro dev",
+    "web:build": "cd web && astro build",
+    "web:start": "node web/dist/server/entry.mjs",
+    "web:check": "cd web && astro check",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",
@@ -19,14 +23,19 @@
     "postinstall": "lefthook install"
   },
   "dependencies": {
+    "@astrojs/node": "^11.0.2",
+    "@astrojs/preact": "^6.0.1",
     "@google/genai": "^2.12.0",
+    "astro": "^7.1.1",
     "better-sqlite3": "^11.10.0",
     "drizzle-orm": "^0.45.2",
     "grammy": "^1.32.0",
     "node-cron": "^4.6.0",
+    "preact": "^10.29.7",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.9",
     "@biomejs/biome": "^2.5.4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.13.10",

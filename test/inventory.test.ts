@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type InventoryLot, MESSAGE_LIMIT, renderInventory } from "../src/inventory.js";
+import {
+  groupForDisplay,
+  type InventoryLot,
+  MESSAGE_LIMIT,
+  renderInventory,
+} from "../src/inventory.js";
 
 function lot(overrides: Partial<InventoryLot> & { lotId: number }): InventoryLot {
   return {
@@ -91,5 +96,30 @@ describe("renderInventory", () => {
       expect(chunk.text.length).toBeLessThanOrEqual(MESSAGE_LIMIT);
     }
     expect(chunks.flatMap((c) => c.lotIds)).toEqual([1]);
+  });
+});
+
+describe("groupForDisplay", () => {
+  it("splits by category, sorting food by soonest-expiry-then-name and household alphabetically", () => {
+    const lots = [
+      lot({ lotId: 1, productName: "Bread", category: "food", estExpiry: "2026-07-20" }),
+      lot({ lotId: 2, productName: "Milk", category: "food", estExpiry: "2026-07-18" }),
+      lot({ lotId: 3, productName: "Toilet roll", category: "household" }),
+      lot({ lotId: 4, productName: "Bleach", category: "household" }),
+    ];
+
+    const sections = groupForDisplay(lots);
+
+    expect(sections.food.map((l: InventoryLot) => l.lotId)).toEqual([2, 1]);
+    expect(sections.household.map((l: InventoryLot) => l.lotId)).toEqual([4, 3]);
+  });
+
+  it("omits a category's key content when that category has no lots", () => {
+    const lots = [lot({ lotId: 1, productName: "Milk", category: "food" })];
+
+    const sections = groupForDisplay(lots);
+
+    expect(sections.food).toHaveLength(1);
+    expect(sections.household).toHaveLength(0);
   });
 });

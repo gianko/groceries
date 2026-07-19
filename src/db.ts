@@ -6,9 +6,18 @@ import { schema } from "./db/schema.js";
 
 export type Db = BetterSQLite3Database<typeof schema> & { $client: Database.Database };
 
-const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
+const defaultMigrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
 
-export function createDb(filename: string = ":memory:"): Db {
+// migrationsFolder defaults to a path relative to this source file, which
+// only holds up when each module keeps its original relative position on
+// disk (true for the bot's tsc output, one compiled file per source file).
+// A bundler that rolls multiple modules into one chunk (e.g. the Mini
+// App's Vite/Astro build, per #25) moves this file to an arbitrary depth,
+// so that caller passes an explicit absolute path instead.
+export function createDb(
+  filename: string = ":memory:",
+  migrationsFolder = defaultMigrationsFolder,
+): Db {
   const sqlite = new Database(filename);
   if (filename !== ":memory:") {
     sqlite.pragma("journal_mode = WAL");

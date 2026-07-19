@@ -26,3 +26,43 @@ services:
     # No exposed ports: the bot only makes outbound calls (Telegram, Gemini)
     # via long polling, per ADR 0003.
     restart: unless-stopped
+
+  # Mini App server (#19/#22/#25/#27): new service in the same stack, direct
+  # DB access via the same /data volume as pantry-bot (WAL mode makes
+  # concurrent access from two processes safe). No exposed ports — only
+  # cloudflared reaches it, over the compose network.
+  pantry-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      platforms:
+        - linux/arm64
+    image: pantry-web:latest
+    container_name: pantry-web
+    environment:
+      - TZ=Europe/Dublin
+      - DB_PATH=/data/pantry.db
+    env_file:
+      - .env
+    volumes:
+      - CHANGE_TO_COMPOSE_DATA_PATH/data:/data
+    restart: unless-stopped
+    depends_on:
+      - pantry-bot
+
+  # Named Cloudflare Tunnel fronting pantry-web with a CA-signed HTTPS URL,
+  # per #22 — required for Telegram's WebView to load the Mini App (a
+  # self-signed cert has no equivalent to the webhook pinning workaround,
+  # per docs/research/telegram-mini-app-requirements.md §1). Token comes
+  # from the tunnel's Zero Trust dashboard config, which maps the public
+  # hostname to http://pantry-web:4321 inside the tunnel itself — no ports
+  # opened on this host.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: pantry-cloudflared
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+    depends_on:
+      - pantry-web
