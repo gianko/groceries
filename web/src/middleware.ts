@@ -29,5 +29,6 @@ export const onRequest = defineMiddleware((context, next) => {
   }
 
   context.locals.userId = result.userId;
+  context.locals.userName = result.firstName;
   return next();
 });

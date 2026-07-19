@@ -115,8 +115,9 @@ export function computeCycleGuesses(db: Db, clock: Clock): CycleGuess[] {
 
 // "Add" is the only write a Cycle Guess ever causes; "skip" leaves no trace
 // (per the ticket) so there's no corresponding function for it.
-export function addCycleGuessEntry(db: Db, clock: Clock, guess: CycleGuess): void {
-  db.insert(shoppingListEntries)
+export function addCycleGuessEntry(db: Db, clock: Clock, guess: CycleGuess): ShoppingListEntry {
+  const [inserted] = db
+    .insert(shoppingListEntries)
     .values({
       source: "cycle_guess",
       productId: guess.productId,
@@ -124,7 +125,15 @@ export function addCycleGuessEntry(db: Db, clock: Clock, guess: CycleGuess): voi
       status: "open",
       createdAt: clock.now().toISOString(),
     })
-    .run();
+    .returning()
+    .all();
+
+  return {
+    id: inserted!.id,
+    source: "cycle_guess",
+    productName: guess.productName,
+    freeText: null,
+  };
 }
 
 export function renderShoppingSummary(

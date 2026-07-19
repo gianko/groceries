@@ -1,0 +1,19 @@
+---
+import { fetchOpenEntries } from "../../../src/list.js";
+import { computeCycleGuesses, fetchExpiringLots } from "../../../src/shopping.js";
+import { systemClock } from "../../../src/clock.js";
+import ShoppingScreen from "../components/ShoppingScreen";
+import Base from "../layouts/Base.astro";
+import { getDb } from "../lib/webDb.js";
+
+// Server-rendered at request time per #30 — same pattern as #27, no
+// fetch-on-mount for the initial unified list.
+const db = getDb();
+const entries = fetchOpenEntries(db);
+const expiringLots = fetchExpiringLots(db, systemClock);
+const cycleGuesses = computeCycleGuesses(db, systemClock);
+---
+
+<Base title="Shopping">
+  <ShoppingScreen client:load entries={entries} expiringLots={expiringLots} cycleGuesses={cycleGuesses} />
+</Base>

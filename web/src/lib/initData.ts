@@ -2,7 +2,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 const MAX_AGE_SECONDS = 24 * 60 * 60;
 
-export type InitDataResult = { valid: true; userId: number } | { valid: false; reason: string };
+export type InitDataResult =
+  | { valid: true; userId: number; firstName: string }
+  | { valid: false; reason: string };
 
 // Validates Telegram Mini App initData per
 // docs/research/telegram-mini-app-requirements.md §3: HMAC-SHA256 over the
@@ -50,8 +52,11 @@ export function validateInitData(
     return { valid: false, reason: "missing user" };
   }
   let userId: number;
+  let firstName: string;
   try {
-    userId = JSON.parse(userRaw).id;
+    const user = JSON.parse(userRaw);
+    userId = user.id;
+    firstName = user.first_name;
   } catch {
     return { valid: false, reason: "malformed user" };
   }
@@ -59,7 +64,7 @@ export function validateInitData(
     return { valid: false, reason: "user not allowed" };
   }
 
-  return { valid: true, userId };
+  return { valid: true, userId, firstName };
 }
 
 function timingSafeEqualHex(a: string, b: string): boolean {

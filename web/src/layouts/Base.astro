@@ -142,6 +142,141 @@ const { title } = Astro.props;
         font-size: 16px;
         font-weight: 600;
       }
+      .empty-state {
+        margin: 0 16px;
+        padding: 14px 2px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .entry-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 12px 14px;
+        border: none;
+        background: none;
+        text-align: left;
+        font: inherit;
+        color: inherit;
+      }
+      .entry-check {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: 2px solid var(--line);
+        flex: none;
+      }
+      .entry-check.done {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+      }
+      .entry-name {
+        flex: 1;
+        font-size: 15px;
+      }
+      .entry-name.done {
+        text-decoration: line-through;
+        color: var(--muted);
+      }
+      .tag {
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 20px;
+        background: var(--bg);
+        color: var(--muted);
+      }
+      .add-row {
+        display: flex;
+        gap: 8px;
+        margin: 12px 12px 4px;
+      }
+      .add-row input {
+        flex: 1;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        font-size: 15px;
+      }
+      .add-row button {
+        padding: 10px 16px;
+        border: none;
+        border-radius: 10px;
+        background: var(--ink);
+        color: #fff;
+        font-size: 14px;
+      }
+      .add-row button:disabled {
+        opacity: 0.5;
+      }
+      .signal-list {
+        list-style: none;
+        margin: 0 12px;
+        padding: 0;
+      }
+      .signal-card {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+      }
+      .signal-card.expiring {
+        background: #fbe9dd;
+      }
+      .signal-card.guess {
+        background: #e7ecf7;
+      }
+      .signal-body {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .signal-title {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .signal-meta {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 1px;
+      }
+      .signal-actions {
+        display: flex;
+        gap: 8px;
+        flex: none;
+      }
+      .pill-btn {
+        border: none;
+        border-radius: 20px;
+        padding: 6px 12px;
+        font-size: 13px;
+        flex: none;
+      }
+      .pill-btn.accept {
+        background: var(--accent);
+        color: #fff;
+      }
+      .pill-btn.dismiss {
+        background: none;
+        color: var(--muted);
+        border: 1px solid var(--line);
+      }
+      .checked-off {
+        margin: 18px 12px 0;
+      }
+      .checked-off summary {
+        font-size: 13px;
+        color: var(--muted);
+        padding: 8px 4px;
+      }
     </style>
   </head>
   <body>

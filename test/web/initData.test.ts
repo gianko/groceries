@@ -34,7 +34,7 @@ describe("validateInitData", () => {
 
     const result = validateInitData(raw, BOT_TOKEN, [111, 222], now);
 
-    expect(result).toEqual({ valid: true, userId: 111 });
+    expect(result).toEqual({ valid: true, userId: 111, firstName: "Test" });
   });
 
   it("rejects a payload signed with the wrong bot token", () => {

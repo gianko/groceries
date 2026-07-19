@@ -132,7 +132,17 @@ describe("addCycleGuessEntry", () => {
     const clock = new FakeClock(new Date("2026-01-01T00:00:00Z"));
     const beans = insertProduct(db, "baked beans");
 
-    addCycleGuessEntry(db, clock, { productId: beans.id, productName: "baked beans" });
+    const entry = addCycleGuessEntry(db, clock, {
+      productId: beans.id,
+      productName: "baked beans",
+    });
+
+    expect(entry).toEqual({
+      id: entry.id,
+      source: "cycle_guess",
+      productName: "baked beans",
+      freeText: null,
+    });
 
     const rows = db.select().from(shoppingListEntries).all();
     expect(rows).toHaveLength(1);
