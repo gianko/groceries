@@ -1,0 +1,977 @@
+<!--
+  PROTOTYPE — throwaway, for issue #33 (part of #19).
+  Question: what should the cook/recipe screen look/feel like — browsing
+  tonight's tiered suggestions (Cook tonight / Almost there / Favorites you
+  can cook), viewing a recipe, committing to cook it (decrementForRecipe),
+  and browsing favorites overall.
+
+  Flags one real open design question from the ticket: decrementForRecipe's
+  near-empty lots trigger a SECOND, recipe-triggered path into
+  Finish-Confirmation, distinct from the batch-confirm flow already specced
+  in #27. Does the cook screen reuse that same UI, or get its own? The three
+  variants below each answer this differently:
+
+    A — inline batch-checklist, right on the cook screen (reuses #27's
+        "tap to select, then Confirm finished" interaction, but never
+        leaves this screen)
+    B — handoff: cooking commits immediately, near-empty lots surface as a
+        "review in Pantry" card that hands off to the real batch-confirm
+        screen (#27), shown here pre-selected to make the handoff concrete
+    C — lightweight inline: each near-empty lot is a single quick-tap row,
+        no multi-select/batch bar at all — the smallest possible inline
+        footprint
+
+  They also differ on tier-list layout (stacked sections / segmented tabs /
+  accordion) and recipe-detail presentation (full modal / full push /
+  bottom sheet), since those are live questions too.
+
+  Switchable via ?variant=A|B|C (defaults to A), or the floating bottom bar
+  / left-right arrow keys.
+
+  No backend: all state is in-memory mock data mirroring the shapes in
+  src/cook.ts (CookRecipe, CookIngredient, CookSuggestions, DecrementedLot,
+  FinishConfirmationLot, CookDecrementResult, FavoriteRecipe). Actions
+  (cook, confirm finish, rate, add missing to list) mutate local state only.
+
+  Run it: just open this file directly in a browser (or `pnpm run prototype:cook-screen`).
+  DO NOT promote this file itself to production — fold the winning variant into
+  real code, then move this whole thing to the throwaway branch.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROTOTYPE — cook screen</title>
+<style>
+  :root {
+    --bg: #f4f3ef;
+    --card: #ffffff;
+    --ink: #1c1c1c;
+    --muted: #6b6b66;
+    --line: #e6e4dd;
+    --accent: #2f7a4f;
+    --accent-soft: #e4f2e9;
+    --warn: #b3541e;
+    --warn-soft: #fbe9dd;
+    --guess: #3a5ba0;
+    --guess-soft: #e7ecf7;
+    --danger: #b3261e;
+    --gold: #a9791b;
+    --gold-soft: #f7eed9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    justify-content: center;
+  }
+  #phone {
+    width: 100%;
+    max-width: 430px;
+    min-height: 100vh;
+    background: var(--card);
+    box-shadow: 0 0 40px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  header.top {
+    padding: 18px 16px 12px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--card);
+    z-index: 5;
+  }
+  header.top h1 { margin: 0; font-size: 1.15rem; }
+  header.top p { margin: 2px 0 0; font-size: 0.8rem; color: var(--muted); }
+  main {
+    flex: 1;
+    padding: 12px 16px 100px;
+    overflow-y: auto;
+  }
+  .section-title {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 18px 0 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .section-title:first-child { margin-top: 4px; }
+  .empty { color: var(--muted); font-size: 0.88rem; padding: 8px 4px; }
+  .link-btn {
+    background: none; border: none; color: var(--guess);
+    font-size: 0.8rem; cursor: pointer; padding: 0;
+  }
+
+  /* recipe row (list) */
+  ul.rows { list-style: none; margin: 0; padding: 0; }
+  li.recipe-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 4px; border-bottom: 1px solid var(--line);
+    cursor: pointer;
+  }
+  li.recipe-row:last-child { border-bottom: none; }
+  .r-icon { font-size: 1.3rem; flex: none; }
+  .r-main { flex: 1; min-width: 0; }
+  .r-title { font-size: 0.95rem; font-weight: 600; }
+  .r-sub { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
+  .r-chev { color: var(--muted); font-size: 1rem; flex: none; }
+  .tag {
+    display: inline-block; font-size: 0.62rem; padding: 1px 6px;
+    border-radius: 20px; background: #eee; color: var(--muted);
+    margin-left: 6px; vertical-align: middle;
+  }
+  .tag.missing { background: var(--warn-soft); color: var(--warn); }
+  .tag.gold { background: var(--gold-soft); color: var(--gold); }
+
+  /* ingredient list (detail) */
+  .ing-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--line);
+    font-size: 0.9rem;
+  }
+  .ing-row:last-child { border-bottom: none; }
+  .ing-dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; flex: none; color: white;
+  }
+  .ing-dot.present { background: var(--accent); }
+  .ing-dot.missing { background: var(--muted); }
+  .ing-name { flex: 1; }
+  .ing-qty { font-size: 0.78rem; color: var(--muted); }
+
+  /* cook result */
+  .result-block { margin: 14px 0; }
+  .result-block h3 {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); margin: 0 0 8px;
+  }
+  .used-row {
+    display: flex; justify-content: space-between; font-size: 0.9rem;
+    padding: 7px 0; border-bottom: 1px solid var(--line);
+  }
+  .used-row .qty-change { color: var(--muted); font-size: 0.82rem; }
+  .used-row:last-child { border-bottom: none; }
+
+  /* rating */
+  .rate-block {
+    margin-top: 18px; padding: 14px; border-radius: 12px;
+    background: var(--accent-soft); text-align: center;
+  }
+  .rate-block p { margin: 0 0 10px; font-size: 0.88rem; font-weight: 600; }
+  .rate-btns { display: flex; gap: 12px; justify-content: center; }
+  .rate-btn {
+    width: 52px; height: 52px; border-radius: 50%; border: none;
+    background: white; font-size: 1.4rem; cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  }
+  .rate-btn.picked.up { background: var(--accent); }
+  .rate-btn.picked.down { background: var(--danger); }
+  .rate-btn:disabled { cursor: default; opacity: 0.55; }
+  .rate-thanks { font-size: 0.82rem; color: var(--muted); margin-top: 8px; }
+
+  /* buttons */
+  .primary-btn {
+    display: block; width: 100%; padding: 13px; border: none;
+    border-radius: 10px; background: var(--ink); color: white;
+    font-size: 0.92rem; font-weight: 600; cursor: pointer; margin-top: 4px;
+  }
+  .primary-btn:disabled { opacity: 0.4; cursor: default; }
+  .ghost-btn {
+    display: block; width: 100%; padding: 10px; border: 1px solid var(--line);
+    border-radius: 10px; background: none; color: var(--ink);
+    font-size: 0.85rem; cursor: pointer; margin-top: 8px;
+  }
+  .back-btn {
+    background: none; border: none; font-size: 1.2rem; cursor: pointer;
+    color: var(--ink); padding: 0 8px 0 0;
+  }
+
+  /* ---------- Variant A: modal detail + inline batch checklist ---------- */
+  .a-modal {
+    position: absolute; inset: 0; background: var(--card);
+    display: flex; flex-direction: column; z-index: 20;
+    transform: translateY(100%); transition: transform 0.22s ease;
+  }
+  .a-modal.open { transform: translateY(0); }
+  .a-modal main { padding-bottom: 24px; }
+  .a-batchbar {
+    position: sticky; bottom: 0; background: var(--ink); color: white;
+    padding: 12px 16px; display: flex; align-items: center;
+    justify-content: space-between; border-radius: 12px 12px 0 0;
+    margin: 0 -16px -0px;
+  }
+  .a-batchbar button {
+    border: none; border-radius: 8px; padding: 8px 14px;
+    font-size: 0.82rem; cursor: pointer;
+  }
+  .a-batchbar .confirm-btn { background: var(--accent); color: white; font-weight: 600; }
+  .a-fc-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 4px;
+    border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  .a-fc-check {
+    width: 22px; height: 22px; border-radius: 50%; border: 2px solid #c9c7bf;
+    flex: none; display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 13px;
+  }
+  .a-fc-check.checked { background: var(--warn); border-color: var(--warn); }
+
+  /* ---------- Variant B: tabs + full push + handoff card ---------- */
+  .b-tabs {
+    display: flex; gap: 6px; padding: 0 16px 12px; border-bottom: 1px solid var(--line);
+  }
+  .b-tab {
+    flex: 1; text-align: center; padding: 8px; border-radius: 8px;
+    font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--muted);
+  }
+  .b-tab.active { background: var(--ink); color: white; }
+  .b-chips { display: flex; gap: 8px; margin: 12px 0 4px; }
+  .b-chip {
+    padding: 7px 12px; border-radius: 20px; font-size: 0.8rem;
+    background: #eee; color: var(--muted); cursor: pointer; font-weight: 600;
+  }
+  .b-chip.active { background: var(--accent-soft); color: var(--accent); }
+  .b-handoff {
+    margin-top: 16px; padding: 14px; border-radius: 12px;
+    background: var(--warn-soft); border: 1px solid #f0d3bb;
+  }
+  .b-handoff .h-title { font-weight: 600; color: var(--warn); font-size: 0.9rem; }
+  .b-handoff .h-sub { font-size: 0.78rem; color: var(--muted); margin: 3px 0 10px; }
+  .b-pantry-mock {
+    margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  }
+  .b-pantry-mock .pm-head {
+    background: #fafaf8; padding: 8px 12px; font-size: 0.72rem;
+    text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+    border-bottom: 1px solid var(--line);
+  }
+  .b-pantry-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-bottom: 1px solid var(--line); font-size: 0.88rem;
+  }
+  .b-pantry-row:last-child { border-bottom: none; }
+  .b-pantry-check {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent);
+    color: white; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; flex: none;
+  }
+  .b-pantry-mock .pm-bar {
+    padding: 10px 12px; background: #f4f3ef; text-align: right;
+  }
+  .b-pantry-mock .pm-bar button {
+    border: none; border-radius: 8px; padding: 7px 12px; font-size: 0.8rem;
+    background: var(--accent); color: white; font-weight: 600; cursor: pointer;
+  }
+
+  /* ---------- Variant C: accordion + bottom sheet + single-tap inline ---------- */
+  details.acc {
+    border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; overflow: hidden;
+  }
+  details.acc summary {
+    list-style: none; padding: 12px 14px; display: flex; align-items: center;
+    justify-content: space-between; cursor: pointer; font-size: 0.9rem; font-weight: 600;
+  }
+  details.acc summary::-webkit-details-marker { display: none; }
+  details.acc summary .count { font-weight: 400; font-size: 0.78rem; color: var(--muted); }
+  details.acc[open] summary { border-bottom: 1px solid var(--line); }
+  details.acc .acc-body { padding: 4px 14px 8px; }
+  .c-backdrop {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.35); z-index: 19;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+  }
+  .c-backdrop.show { opacity: 1; pointer-events: auto; }
+  .c-sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 82%;
+    background: var(--card); border-radius: 18px 18px 0 0; z-index: 20;
+    display: flex; flex-direction: column;
+    transform: translateY(100%); transition: transform 0.22s ease;
+    box-shadow: 0 -8px 30px rgba(0,0,0,0.18);
+  }
+  .c-sheet.open { transform: translateY(0); }
+  .c-sheet .grabber {
+    width: 36px; height: 4px; background: #ddd; border-radius: 4px;
+    margin: 10px auto 4px;
+  }
+  .c-sheet-head { padding: 4px 18px 10px; border-bottom: 1px solid var(--line); }
+  .c-sheet-head h2 { margin: 0; font-size: 1.05rem; }
+  .c-sheet-body { padding: 12px 18px 100px; overflow-y: auto; }
+  .c-fc-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 0;
+    border-bottom: 1px solid var(--line); font-size: 0.9rem;
+  }
+  .c-fc-row:last-child { border-bottom: none; }
+  .c-fc-row.resolved { opacity: 0.5; }
+  .c-fc-name { flex: 1; }
+  .c-fc-btn {
+    border: none; border-radius: 8px; padding: 6px 12px; font-size: 0.78rem;
+    background: var(--warn-soft); color: var(--warn); cursor: pointer; font-weight: 600;
+  }
+  .c-fc-btn:disabled { background: var(--accent-soft); color: var(--accent); }
+
+  /* Floating prototype switcher */
+  #switcher {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: #16181d; color: #fff; border-radius: 999px;
+    padding: 8px 6px 8px 14px; display: flex; align-items: center; gap: 10px;
+    font-family: ui-monospace, monospace; font-size: 0.78rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35); z-index: 50;
+  }
+  #switcher button {
+    background: #2a2d35; color: #fff; border: none; border-radius: 50%;
+    width: 30px; height: 30px; font-size: 1rem; cursor: pointer;
+  }
+  #switcher .label { min-width: 170px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="phone"></div>
+
+<div id="switcher">
+  <button id="prev" aria-label="Previous variant">←</button>
+  <span class="label" id="switcher-label"></span>
+  <button id="next" aria-label="Next variant">→</button>
+</div>
+
+<script>
+// ==================================================================
+// Mock data — shaped like src/cook.ts (CookRecipe, FavoriteRecipe, etc.)
+// ==================================================================
+
+// Ingredient presence is fixed per recipe (as if already reclassified
+// against current inventory + staples, like reclassifyRecipe does).
+const RECIPES = [
+  {
+    id: 1, title: "Tomato pasta", tier: "cookTonight",
+    ingredients: [
+      { name: "Pasta", quantity: 200, unit: "g", present: true },
+      { name: "Tomatoes", quantity: 400, unit: "g", present: true },
+      { name: "Garlic", quantity: 2, unit: "cloves", present: true },
+      { name: "Basil", quantity: 10, unit: "g", present: true },
+    ],
+  },
+  {
+    id: 2, title: "Veggie stir fry", tier: "cookTonight",
+    ingredients: [
+      { name: "Rice", quantity: 200, unit: "g", present: true },
+      { name: "Mixed veg", quantity: 300, unit: "g", present: true },
+      { name: "Soy sauce", quantity: 30, unit: "ml", present: true },
+      { name: "Ginger", quantity: 1, unit: "thumb", present: true },
+    ],
+  },
+  {
+    id: 3, title: "Baked beans on toast", tier: "cookTonight",
+    ingredients: [
+      { name: "Bread", quantity: 2, unit: "slices", present: true },
+      { name: "Baked beans", quantity: 1, unit: "tin", present: true },
+      { name: "Butter", quantity: 1, unit: "knob", present: true },
+    ],
+  },
+  {
+    id: 4, title: "Chicken curry", tier: "almostThere",
+    ingredients: [
+      { name: "Chicken breast", quantity: 300, unit: "g", present: false },
+      { name: "Curry paste", quantity: 1, unit: "jar", present: false },
+      { name: "Rice", quantity: 200, unit: "g", present: true },
+      { name: "Onion", quantity: 1, unit: "", present: true },
+    ],
+  },
+  {
+    id: 5, title: "Beef tacos", tier: "almostThere",
+    ingredients: [
+      { name: "Tortillas", quantity: 6, unit: "", present: false },
+      { name: "Mince", quantity: 400, unit: "g", present: true },
+      { name: "Cheese", quantity: 100, unit: "g", present: true },
+      { name: "Lettuce", quantity: 1, unit: "", present: true },
+    ],
+  },
+  {
+    id: 6, title: "Mushroom risotto", tier: "almostThere",
+    ingredients: [
+      { name: "Arborio rice", quantity: 250, unit: "g", present: false },
+      { name: "Mushrooms", quantity: 300, unit: "g", present: false },
+      { name: "Parmesan", quantity: 50, unit: "g", present: false },
+      { name: "Stock", quantity: 500, unit: "ml", present: true },
+    ],
+  },
+];
+
+// FavoriteRecipe-shaped: all-time liked recipes (fetchFavoriteRecipes),
+// independent of tonight's pool. "coverable" mirrors fetchCoverableFavorites
+// — precomputed here since the prototype doesn't run reclassifyRecipe live.
+const FAVORITES = [
+  { title: "Tomato pasta", coverable: true, missing: [] },
+  { title: "Veggie stir fry", coverable: true, missing: [] },
+  { title: "Chicken curry", coverable: false, missing: ["Chicken breast", "Curry paste"] },
+  { title: "Fish pie", coverable: false, missing: ["White fish", "Potatoes"] },
+];
+
+// Mock stock lots keyed by ingredient name, for simulating
+// decrementForRecipe's before/after + 25% near-empty threshold.
+const STOCK = {
+  "Pasta": { lotId: 201, quantity: 500, unit: "g" },
+  "Tomatoes": { lotId: 202, quantity: 400, unit: "g" },
+  "Basil": { lotId: 203, quantity: 10, unit: "g" },
+  "Rice": { lotId: 204, quantity: 1000, unit: "g" },
+  "Mixed veg": { lotId: 205, quantity: 300, unit: "g" },
+  "Soy sauce": { lotId: 206, quantity: 100, unit: "ml" },
+  "Bread": { lotId: 207, quantity: 8, unit: "slices" },
+  "Baked beans": { lotId: 208, quantity: 1, unit: "tin" },
+};
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s ?? "";
+  return d.innerHTML;
+}
+function fmtQty(q, unit) { return unit ? `${q} ${unit}` : `${q}`; }
+
+function byId(id) { return RECIPES.find((r) => r.id === id); }
+function tierOf(tier) { return RECIPES.filter((r) => r.tier === tier); }
+
+// Mirrors decrementForRecipe: present ingredients with a stock lot decrement
+// (or, at/below the 25% remainder threshold, surface as a Finish-Confirmation
+// instead). A present ingredient with no tracked lot (a Staple) is skipped.
+function simulateCook(recipe) {
+  const decremented = [];
+  const finishConfirmations = [];
+  for (const ing of recipe.ingredients) {
+    if (!ing.present) continue;
+    const lot = STOCK[ing.name];
+    if (!lot) continue; // staple, no lots to decrement
+    const remainder = Math.max(0, lot.quantity - ing.quantity);
+    const ratio = lot.quantity > 0 ? remainder / lot.quantity : 0;
+    if (ratio <= 0.25) {
+      finishConfirmations.push({ lotId: lot.lotId, productName: ing.name, quantity: lot.quantity, unit: lot.unit });
+    } else {
+      decremented.push({ lotId: lot.lotId, productName: ing.name, before: lot.quantity, after: remainder });
+    }
+  }
+  return { decremented, finishConfirmations };
+}
+
+function missingIngredients(recipe) {
+  return recipe.ingredients.filter((i) => !i.present);
+}
+
+// ==================================================================
+// Variant A — stacked sections, modal detail, inline batch-checklist
+// finish-confirm (reuses #27's "tap to select, then Confirm finished")
+// ==================================================================
+const stateA = { screen: "tonight", recipeId: null, cookResult: null, checked: new Set(), rating: null };
+
+function renderA(root) {
+  root.innerHTML = `
+    <header class="top">
+      <h1>🍳 Cook</h1>
+      <p id="a-subtitle">Tonight's suggestions</p>
+    </header>
+    <main id="a-main"></main>
+  `;
+  renderATonight(root.querySelector("#a-main"));
+  if (stateA.screen === "detail" || stateA.screen === "result") {
+    root.appendChild(buildAModal());
+  }
+}
+
+function renderATonight(main) {
+  const cookTonight = tierOf("cookTonight");
+  const almostThere = tierOf("almostThere");
+  const favTonight = FAVORITES.filter((f) => f.coverable);
+
+  let html = `<div class="section-title">🍳 Cook tonight</div>`;
+  html += recipeListHtml(cookTonight, "a");
+
+  html += `<div class="section-title">🥘 Almost there</div>`;
+  if (almostThere.length === 0) {
+    html += `<div class="empty">Nothing close — check the shopping list.</div>`;
+  } else {
+    html += `<ul class="rows">` + almostThere.map((r) => `
+      <li class="recipe-row" onclick="openA(${r.id})">
+        <span class="r-icon">🥘</span>
+        <div class="r-main">
+          <div class="r-title">${esc(r.title)}<span class="tag missing">missing ${missingIngredients(r).length}</span></div>
+          <div class="r-sub">${missingIngredients(r).map((i) => esc(i.name)).join(", ")}</div>
+        </div>
+        <span class="r-chev">›</span>
+      </li>`).join("") + `</ul>`;
+  }
+
+  html += `<div class="section-title">⭐ Favorites you can cook tonight <button class="link-btn" onclick="stateA.screen='favorites'; render();">See all →</button></div>`;
+  if (favTonight.length === 0) {
+    html += `<div class="empty">None of your favorites are fully in stock tonight.</div>`;
+  } else {
+    html += `<ul class="rows">` + favTonight.map((f) => {
+      const r = RECIPES.find((x) => x.title === f.title);
+      return `<li class="recipe-row" onclick="openA(${r ? r.id : "null"})">
+        <span class="r-icon">⭐</span>
+        <div class="r-main"><div class="r-title">${esc(f.title)}</div></div>
+        <span class="r-chev">›</span>
+      </li>`;
+    }).join("") + `</ul>`;
+  }
+
+  main.innerHTML = html;
+
+  if (stateA.screen === "favorites") {
+    main.innerHTML = renderFavoritesScreen("a");
+  }
+}
+
+function recipeListHtml(recipes, prefix) {
+  if (recipes.length === 0) return `<div class="empty">Nothing fully in stock tonight.</div>`;
+  return `<ul class="rows">` + recipes.map((r) => `
+    <li class="recipe-row" onclick="open${prefix.toUpperCase()}(${r.id})">
+      <span class="r-icon">🍳</span>
+      <div class="r-main"><div class="r-title">${esc(r.title)}</div></div>
+      <span class="r-chev">›</span>
+    </li>`).join("") + `</ul>`;
+}
+
+function renderFavoritesScreen(prefix) {
+  let html = `<button class="link-btn" onclick="state${prefix.toUpperCase()}.screen='tonight'; render();">← Back to tonight</button>`;
+  html += `<div class="section-title">⭐ All favorites</div><ul class="rows">`;
+  html += FAVORITES.map((f) => `
+    <li class="recipe-row">
+      <span class="r-icon">⭐</span>
+      <div class="r-main">
+        <div class="r-title">${esc(f.title)}</div>
+        <div class="r-sub">${f.coverable ? "Fully in stock tonight" : "Missing: " + f.missing.map(esc).join(", ")}</div>
+      </div>
+      ${f.coverable ? `<span class="tag gold">tonight</span>` : `<span class="tag missing">missing</span>`}
+    </li>`).join("");
+  html += `</ul>`;
+  return html;
+}
+
+function openA(id) {
+  stateA.recipeId = id;
+  stateA.screen = "detail";
+  stateA.cookResult = null;
+  stateA.checked = new Set();
+  stateA.rating = null;
+  render();
+}
+
+function buildAModal() {
+  const wrap = document.createElement("div");
+  wrap.className = "a-modal open";
+  const recipe = byId(stateA.recipeId);
+  if (!recipe) { wrap.className = "a-modal"; return wrap; }
+
+  let body = `<header class="top"><button class="back-btn" onclick="stateA.screen='tonight'; render();">←</button> <span style="font-weight:600;">${esc(recipe.title)}</span></header><main>`;
+
+  if (stateA.screen === "detail") {
+    const missing = missingIngredients(recipe);
+    body += `<div class="section-title">Ingredients</div>`;
+    body += recipe.ingredients.map((i) => `
+      <div class="ing-row">
+        <span class="ing-dot ${i.present ? "present" : "missing"}">${i.present ? "✓" : "✕"}</span>
+        <span class="ing-name">${esc(i.name)}</span>
+        <span class="ing-qty">${fmtQty(i.quantity, i.unit)}</span>
+      </div>`).join("");
+
+    if (missing.length === 0) {
+      body += `<button class="primary-btn" onclick="cookA(${recipe.id})">Cook this</button>`;
+    } else {
+      body += `<button class="primary-btn" onclick="addMissingA(${recipe.id})">Add ${missing.length} missing to shopping list</button>`;
+      body += `<button class="ghost-btn" onclick="cookA(${recipe.id})">Cook anyway (skip missing)</button>`;
+    }
+  } else if (stateA.screen === "result") {
+    body += buildResultHtml(stateA, "A");
+  }
+
+  body += `</main>`;
+  wrap.innerHTML = body;
+  return wrap;
+}
+
+function addMissingA(id) {
+  const recipe = byId(id);
+  alert(`Added ${missingIngredients(recipe).length} missing ingredient(s) to the shopping list (addMissingIngredients).`);
+}
+
+function cookA(id) {
+  const recipe = byId(id);
+  stateA.cookResult = simulateCook(recipe);
+  stateA.checked = new Set();
+  stateA.screen = "result";
+  render();
+}
+
+function toggleCheckA(lotId) {
+  if (stateA.checked.has(lotId)) stateA.checked.delete(lotId);
+  else stateA.checked.add(lotId);
+  render();
+}
+function confirmCheckedA() {
+  stateA.cookResult.finishConfirmations = stateA.cookResult.finishConfirmations.filter((l) => !stateA.checked.has(l.lotId));
+  stateA.checked = new Set();
+  render();
+}
+function rateA(value) { stateA.rating = value; render(); }
+
+// ==================================================================
+// Variant B — tabs + segmented tier chips, full push navigation,
+// handoff card to the Pantry's batch-confirm screen (reuse-elsewhere)
+// ==================================================================
+const stateB = { tab: "tonight", tier: "cookTonight", screen: "list", recipeId: null, cookResult: null, rating: null, handoffDone: false };
+
+function renderB(root) {
+  root.innerHTML = `<header class="top"><h1>🍳 Cook</h1></header><main id="b-main"></main>`;
+  const main = root.querySelector("#b-main");
+
+  if (stateB.screen === "detail") { main.innerHTML = buildBDetail(); return; }
+  if (stateB.screen === "result") { main.innerHTML = buildBResult(); return; }
+
+  let html = `<div class="b-tabs">
+    <div class="b-tab ${stateB.tab === "tonight" ? "active" : ""}" onclick="stateB.tab='tonight'; render();">Tonight</div>
+    <div class="b-tab ${stateB.tab === "favorites" ? "active" : ""}" onclick="stateB.tab='favorites'; render();">Favorites</div>
+  </div>`;
+
+  if (stateB.tab === "favorites") {
+    html += `<div style="padding-top:8px;">` + renderFavoritesScreen("b").replace(/<button class="link-btn"[^<]*<\/button>/, "") + `</div>`;
+  } else {
+    const cookTonight = tierOf("cookTonight");
+    const almostThere = tierOf("almostThere");
+    html += `<div class="b-chips">
+      <div class="b-chip ${stateB.tier === "cookTonight" ? "active" : ""}" onclick="stateB.tier='cookTonight'; render();">Cook tonight (${cookTonight.length})</div>
+      <div class="b-chip ${stateB.tier === "almostThere" ? "active" : ""}" onclick="stateB.tier='almostThere'; render();">Almost there (${almostThere.length})</div>
+    </div>`;
+    const shown = stateB.tier === "cookTonight" ? cookTonight : almostThere;
+    if (shown.length === 0) {
+      html += `<div class="empty">Nothing here right now.</div>`;
+    } else {
+      html += `<ul class="rows">` + shown.map((r) => `
+        <li class="recipe-row" onclick="openB(${r.id})">
+          <span class="r-icon">${r.tier === "cookTonight" ? "🍳" : "🥘"}</span>
+          <div class="r-main">
+            <div class="r-title">${esc(r.title)}${r.tier === "almostThere" ? `<span class="tag missing">missing ${missingIngredients(r).length}</span>` : ""}</div>
+            ${r.tier === "almostThere" ? `<div class="r-sub">${missingIngredients(r).map((i) => esc(i.name)).join(", ")}</div>` : ""}
+          </div>
+          <span class="r-chev">›</span>
+        </li>`).join("") + `</ul>`;
+    }
+  }
+  main.innerHTML = html;
+}
+
+function openB(id) {
+  stateB.recipeId = id;
+  stateB.screen = "detail";
+  stateB.cookResult = null;
+  stateB.rating = null;
+  stateB.handoffDone = false;
+  render();
+}
+
+function buildBDetail() {
+  const recipe = byId(stateB.recipeId);
+  const missing = missingIngredients(recipe);
+  let html = `<button class="back-btn" onclick="stateB.screen='list'; render();">← Back</button>
+    <div class="section-title" style="margin-top:10px;">${esc(recipe.title)}</div>`;
+  html += recipe.ingredients.map((i) => `
+    <div class="ing-row">
+      <span class="ing-dot ${i.present ? "present" : "missing"}">${i.present ? "✓" : "✕"}</span>
+      <span class="ing-name">${esc(i.name)}</span>
+      <span class="ing-qty">${fmtQty(i.quantity, i.unit)}</span>
+    </div>`).join("");
+  if (missing.length === 0) {
+    html += `<button class="primary-btn" onclick="cookB(${recipe.id})">Cook this</button>`;
+  } else {
+    html += `<button class="primary-btn" onclick="alert('Added ${missing.length} missing ingredient(s) to the shopping list.')">Add ${missing.length} missing to shopping list</button>`;
+    html += `<button class="ghost-btn" onclick="cookB(${recipe.id})">Cook anyway (skip missing)</button>`;
+  }
+  return html;
+}
+
+function cookB(id) {
+  stateB.cookResult = simulateCook(byId(id));
+  stateB.screen = "result";
+  render();
+}
+
+function buildBResult() {
+  const recipe = byId(stateB.recipeId);
+  let html = `<button class="back-btn" onclick="stateB.screen='list'; render();">← Tonight</button>`;
+  html += `<div class="section-title" style="margin-top:10px;">Cooking ${esc(recipe.title)}</div>`;
+  html += buildResultHtml(stateB, "B");
+  return html;
+}
+
+function confirmHandoffB() {
+  stateB.handoffDone = true;
+  render();
+}
+function rateB(value) { stateB.rating = value; render(); }
+
+// ==================================================================
+// Variant C — accordion tiers, bottom-sheet detail, lightweight
+// single-tap inline finish-confirm (no multi-select batch bar)
+// ==================================================================
+const stateC = { sheet: null, recipeId: null, cookResult: null, resolved: new Set(), rating: null, favOpen: false };
+
+function renderC(root) {
+  const cookTonight = tierOf("cookTonight");
+  const almostThere = tierOf("almostThere");
+  const favTonight = FAVORITES.filter((f) => f.coverable);
+
+  let html = `<header class="top"><h1>🍳 Cook</h1><p>Tonight</p></header><main>`;
+
+  html += `<details class="acc" open>
+    <summary>🍳 Cook tonight <span class="count">${cookTonight.length}</span></summary>
+    <div class="acc-body">${recipeListHtml(cookTonight, "c")}</div>
+  </details>`;
+
+  html += `<details class="acc">
+    <summary>🥘 Almost there <span class="count">${almostThere.length}</span></summary>
+    <div class="acc-body">${almostThere.length === 0 ? `<div class="empty">Nothing close.</div>` : `<ul class="rows">` + almostThere.map((r) => `
+      <li class="recipe-row" onclick="openC(${r.id})">
+        <span class="r-icon">🥘</span>
+        <div class="r-main">
+          <div class="r-title">${esc(r.title)}<span class="tag missing">missing ${missingIngredients(r).length}</span></div>
+          <div class="r-sub">${missingIngredients(r).map((i) => esc(i.name)).join(", ")}</div>
+        </div>
+        <span class="r-chev">›</span>
+      </li>`).join("") + `</ul>`}</div>
+  </details>`;
+
+  html += `<details class="acc">
+    <summary>⭐ Favorites you can cook tonight <span class="count">${favTonight.length}</span></summary>
+    <div class="acc-body">${favTonight.length === 0 ? `<div class="empty">None fully in stock.</div>` : `<ul class="rows">` + favTonight.map((f) => {
+      const r = RECIPES.find((x) => x.title === f.title);
+      return `<li class="recipe-row" onclick="openC(${r ? r.id : "null"})">
+        <span class="r-icon">⭐</span>
+        <div class="r-main"><div class="r-title">${esc(f.title)}</div></div>
+        <span class="r-chev">›</span>
+      </li>`;
+    }).join("") + `</ul>`}</div>
+  </details>`;
+
+  html += `<button class="link-btn" style="margin-top:14px;" onclick="stateC.favOpen=true; render();">⭐ Browse all favorites →</button>`;
+  html += `</main>`;
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "c-backdrop" + (stateC.sheet || stateC.favOpen ? " show" : "");
+  backdrop.onclick = () => { stateC.sheet = null; stateC.favOpen = false; render(); };
+
+  root.innerHTML = html;
+  root.appendChild(backdrop);
+
+  if (stateC.favOpen) {
+    root.appendChild(buildCSheet(`<div class="grabber"></div><div class="c-sheet-head"><h2>⭐ All favorites</h2></div><div class="c-sheet-body">${renderFavoritesScreen("c").replace(/<button class="link-btn"[^<]*<\/button>/, "")}</div>`));
+  } else if (stateC.sheet) {
+    root.appendChild(buildCSheet(buildCSheetBody()));
+  }
+}
+
+function openC(id) {
+  stateC.recipeId = id;
+  stateC.sheet = "detail";
+  stateC.cookResult = null;
+  stateC.resolved = new Set();
+  stateC.rating = null;
+  render();
+}
+
+function buildCSheet(innerHtml) {
+  const sheet = document.createElement("div");
+  sheet.className = "c-sheet open";
+  sheet.innerHTML = innerHtml;
+  return sheet;
+}
+
+function buildCSheetBody() {
+  const recipe = byId(stateC.recipeId);
+  if (!recipe) return "";
+  let html = `<div class="grabber"></div><div class="c-sheet-head"><h2>${esc(recipe.title)}</h2></div><div class="c-sheet-body">`;
+
+  if (stateC.sheet === "detail") {
+    const missing = missingIngredients(recipe);
+    html += recipe.ingredients.map((i) => `
+      <div class="ing-row">
+        <span class="ing-dot ${i.present ? "present" : "missing"}">${i.present ? "✓" : "✕"}</span>
+        <span class="ing-name">${esc(i.name)}</span>
+        <span class="ing-qty">${fmtQty(i.quantity, i.unit)}</span>
+      </div>`).join("");
+    if (missing.length === 0) {
+      html += `<button class="primary-btn" onclick="cookC(${recipe.id})">Cook this</button>`;
+    } else {
+      html += `<button class="primary-btn" onclick="alert('Added ${missing.length} missing ingredient(s) to the shopping list.')">Add ${missing.length} missing to shopping list</button>`;
+      html += `<button class="ghost-btn" onclick="cookC(${recipe.id})">Cook anyway (skip missing)</button>`;
+    }
+  } else if (stateC.sheet === "result") {
+    html += buildResultHtml(stateC, "C");
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function cookC(id) {
+  stateC.cookResult = simulateCook(byId(id));
+  stateC.resolved = new Set();
+  stateC.sheet = "result";
+  render();
+}
+function resolveC(lotId) { stateC.resolved.add(lotId); render(); }
+function rateC(value) { stateC.rating = value; render(); }
+
+// ==================================================================
+// Shared: cook-result body (Used list + finish-confirm + rating),
+// differing only in HOW finish-confirmations are resolved per variant
+// ==================================================================
+function buildResultHtml(state, variant) {
+  const { decremented, finishConfirmations } = state.cookResult;
+  let html = "";
+
+  if (decremented.length > 0) {
+    html += `<div class="result-block"><h3>Used</h3>`;
+    html += decremented.map((l) => `
+      <div class="used-row">
+        <span>${esc(l.productName)}</span>
+        <span class="qty-change">${l.before} → ${l.after}</span>
+      </div>`).join("");
+    html += `</div>`;
+  }
+
+  let allResolved = true;
+
+  if (finishConfirmations.length > 0) {
+    if (variant === "A") {
+      const remaining = finishConfirmations;
+      allResolved = remaining.length === 0;
+      html += `<div class="result-block"><h3>Nearly out — confirm finished</h3>`;
+      html += remaining.map((l) => `
+        <div class="a-fc-row" onclick="toggleCheckA(${l.lotId})">
+          <span class="a-fc-check ${stateA.checked.has(l.lotId) ? "checked" : ""}">${stateA.checked.has(l.lotId) ? "✓" : ""}</span>
+          <span>${esc(l.productName)}</span>
+        </div>`).join("");
+      html += `</div>`;
+      if (remaining.length > 0) {
+        html += `<div class="a-batchbar">
+          <span>${stateA.checked.size} selected</span>
+          <button class="confirm-btn" ${stateA.checked.size === 0 ? "disabled" : ""} onclick="confirmCheckedA()">Confirm finished</button>
+        </div>`;
+      }
+    } else if (variant === "B") {
+      allResolved = state.handoffDone;
+      html += `<div class="b-handoff">
+        <div class="h-title">🔔 ${finishConfirmations.length} lot(s) are nearly out</div>
+        <div class="h-sub">Cooking committed the decrement above — confirming these as finished happens on the Pantry screen, same as any other Finish-Confirmation.</div>`;
+      if (!state.handoffDone) {
+        html += `<button class="primary-btn" onclick="confirmHandoffB()">Review in Pantry →</button>`;
+        html += `<div class="b-pantry-mock">
+          <div class="pm-head">Pantry — pre-selected from cooking</div>`;
+        html += finishConfirmations.map((l) => `
+          <div class="b-pantry-row">
+            <span class="b-pantry-check">✓</span>
+            <span>${esc(l.productName)}</span>
+          </div>`).join("");
+        html += `<div class="pm-bar"><button disabled>Confirm finished</button></div></div>`;
+      } else {
+        html += `<div style="font-size:0.82rem; color: var(--accent); font-weight:600; margin-top:4px;">✓ Confirmed on the Pantry screen.</div>`;
+      }
+      html += `</div>`;
+    } else if (variant === "C") {
+      html += `<div class="result-block"><h3>Nearly out</h3>`;
+      html += finishConfirmations.map((l) => {
+        const done = stateC.resolved.has(l.lotId);
+        return `<div class="c-fc-row ${done ? "resolved" : ""}">
+          <span class="c-fc-name">${esc(l.productName)}</span>
+          <button class="c-fc-btn" ${done ? "disabled" : ""} onclick="resolveC(${l.lotId})">${done ? "✓ Finished" : "Finished?"}</button>
+        </div>`;
+      }).join("");
+      html += `</div>`;
+      allResolved = finishConfirmations.every((l) => stateC.resolved.has(l.lotId));
+    }
+  }
+
+  if (decremented.length === 0 && finishConfirmations.length === 0) {
+    html += `<div class="empty">Nothing to update — everything used was a Staple.</div>`;
+  }
+
+  // Rating: one-shot 👍/👎, per ADR-0002. Shown once any finish-confirmations
+  // for this variant are resolved (or immediately if there were none).
+  if (allResolved) {
+    if (state.rating) {
+      html += `<div class="rate-block">
+        <div class="rate-btns">
+          <button class="rate-btn ${state.rating === "up" ? "picked up" : ""}" disabled>👍</button>
+          <button class="rate-btn ${state.rating === "down" ? "picked down" : ""}" disabled>👎</button>
+        </div>
+        <div class="rate-thanks">Thanks — saved.</div>
+      </div>`;
+    } else {
+      html += `<div class="rate-block">
+        <p>How was it?</p>
+        <div class="rate-btns">
+          <button class="rate-btn" onclick="rate${variant}('up')">👍</button>
+          <button class="rate-btn" onclick="rate${variant}('down')">👎</button>
+        </div>
+      </div>`;
+    }
+  }
+
+  return html;
+}
+
+// ==================================================================
+// Switcher plumbing
+// ==================================================================
+const VARIANTS = {
+  A: { name: "Modal + inline batch checklist", render: renderA },
+  B: { name: "Tabs/push + Pantry handoff", render: renderB },
+  C: { name: "Accordion + sheet + single-tap", render: renderC },
+};
+const ORDER = ["A", "B", "C"];
+
+function currentVariant() {
+  const params = new URLSearchParams(location.search);
+  const v = params.get("variant");
+  return VARIANTS[v] ? v : "A";
+}
+
+function setVariant(v) {
+  const params = new URLSearchParams(location.search);
+  params.set("variant", v);
+  history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
+  render();
+}
+
+function render() {
+  const v = currentVariant();
+  VARIANTS[v].render(document.getElementById("phone"));
+  document.getElementById("switcher-label").textContent = `${v} — ${VARIANTS[v].name}`;
+}
+
+function cycle(dir) {
+  const v = currentVariant();
+  const idx = ORDER.indexOf(v);
+  const next = ORDER[(idx + dir + ORDER.length) % ORDER.length];
+  setVariant(next);
+}
+
+document.getElementById("prev").addEventListener("click", () => cycle(-1));
+document.getElementById("next").addEventListener("click", () => cycle(1));
+document.addEventListener("keydown", (ev) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
+  if (ev.key === "ArrowLeft") cycle(-1);
+  if (ev.key === "ArrowRight") cycle(1);
+});
+
+render();
+</script>
+</body>
+</html>

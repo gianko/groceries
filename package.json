@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "prototype:cook-screen": "open src/prototype/cook-screen.PROTOTYPE.html",
     "postinstall": "lefthook install"
   },
   "dependencies": {
