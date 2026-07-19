@@ -1,0 +1,660 @@
+<!--
+  PROTOTYPE — throwaway, for issue #29 (see docs/agents/ ... no, see the github issue).
+  Question: what should the shopping list screen look/feel like — how the list,
+  expiring-soon heads-up, and Cycle Guess suggestions from src/shopping.ts lay out
+  together; how entries get checked off/added/removed; how a Cycle Guess suggestion
+  gets accepted or dismissed.
+
+  Three variants, switchable via ?variant=A|B|C (defaults to A), or the floating
+  bottom bar / left-right arrow keys.
+
+  No backend: all state is in-memory mock data mirroring the shapes in
+  src/shopping.ts and src/list.ts (ShoppingListEntry, ExpiringLot, CycleGuess).
+  Actions (check off, add, remove, accept/dismiss guess) mutate local state only.
+
+  Run it: just open this file directly in a browser (or `pnpm run prototype:shopping`).
+  DO NOT promote this file itself to production — fold the winning variant into
+  real code, then move this whole thing to the throwaway branch.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROTOTYPE — shopping list screen</title>
+<style>
+  :root {
+    --bg: #f4f3ef;
+    --card: #ffffff;
+    --ink: #1c1c1c;
+    --muted: #6b6b66;
+    --line: #e6e4dd;
+    --accent: #2f7a4f;
+    --accent-soft: #e4f2e9;
+    --warn: #b3541e;
+    --warn-soft: #fbe9dd;
+    --guess: #3a5ba0;
+    --guess-soft: #e7ecf7;
+    --danger: #b3261e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    justify-content: center;
+  }
+  #phone {
+    width: 100%;
+    max-width: 430px;
+    min-height: 100vh;
+    background: var(--card);
+    box-shadow: 0 0 40px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+  }
+  header.top {
+    padding: 18px 16px 12px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--card);
+    z-index: 5;
+  }
+  header.top h1 {
+    margin: 0;
+    font-size: 1.15rem;
+  }
+  header.top p {
+    margin: 2px 0 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  main {
+    flex: 1;
+    padding: 12px 16px 100px;
+    overflow-y: auto;
+  }
+  .section-title {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 18px 0 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .section-title:first-child { margin-top: 4px; }
+  ul.rows { list-style: none; margin: 0; padding: 0; }
+  li.row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--line);
+  }
+  li.row:last-child { border-bottom: none; }
+  .check {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid #c9c7bf;
+    flex: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+  }
+  .check.done {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    font-size: 13px;
+  }
+  .row-main { flex: 1; min-width: 0; }
+  .row-name { font-size: 0.95rem; }
+  .row-name.done { text-decoration: line-through; color: var(--muted); }
+  .row-sub { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+  .tag {
+    display: inline-block;
+    font-size: 0.62rem;
+    padding: 1px 6px;
+    border-radius: 20px;
+    background: #eee;
+    color: var(--muted);
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .remove-x {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 4px 6px;
+    flex: none;
+  }
+  .add-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .add-row input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-size: 0.9rem;
+  }
+  .add-row button {
+    padding: 10px 14px;
+    border: none;
+    border-radius: 10px;
+    background: var(--ink);
+    color: white;
+    font-size: 0.85rem;
+  }
+  .empty { color: var(--muted); font-size: 0.88rem; padding: 8px 4px; }
+
+  /* --- expiring / cycle guess shared "signal" card look --- */
+  .signal-card {
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .signal-card.expiring { background: var(--warn-soft); }
+  .signal-card.guess { background: var(--guess-soft); }
+  .signal-card .icon { font-size: 1.2rem; flex: none; }
+  .signal-card .body { flex: 1; min-width: 0; }
+  .signal-card .title { font-size: 0.88rem; font-weight: 600; }
+  .signal-card.expiring .title { color: var(--warn); }
+  .signal-card.guess .title { color: var(--guess); }
+  .signal-card .meta { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+  .pill-btn {
+    border: none;
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    flex: none;
+  }
+  .pill-btn.accept { background: var(--accent); color: white; }
+  .pill-btn.dismiss { background: none; color: var(--muted); border: 1px solid var(--line); }
+
+  /* Variant B: top strip of swipeable cards */
+  .strip {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 4px 2px 10px;
+    margin: 0 -2px 4px;
+    scroll-snap-type: x mandatory;
+  }
+  .strip .signal-card {
+    min-width: 240px;
+    flex-direction: column;
+    align-items: stretch;
+    scroll-snap-align: start;
+  }
+  .strip .signal-card .icon { font-size: 1.4rem; }
+  .strip .signal-card .actions { display: flex; gap: 8px; margin-top: 8px; }
+  .strip .signal-card .actions .pill-btn { flex: 1; text-align: center; }
+  .strip-empty {
+    font-size: 0.8rem;
+    color: var(--muted);
+    padding: 10px 2px 4px;
+  }
+
+  /* Variant C: accordion */
+  details.acc {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  details.acc summary {
+    list-style: none;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  details.acc summary::-webkit-details-marker { display: none; }
+  details.acc summary .count {
+    font-weight: 400;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  details.acc[open] summary { border-bottom: 1px solid var(--line); }
+  details.acc .acc-body { padding: 4px 14px 8px; }
+  .fab {
+    position: fixed;
+    right: max(24px, calc(50% - 191px));
+    bottom: 92px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: white;
+    border: none;
+    font-size: 1.6rem;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    cursor: pointer;
+    z-index: 6;
+  }
+
+  /* Floating prototype switcher */
+  #switcher {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    background: #16181d;
+    color: #fff;
+    border-radius: 999px;
+    padding: 8px 6px 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: ui-monospace, monospace;
+    font-size: 0.78rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    z-index: 50;
+  }
+  #switcher button {
+    background: #2a2d35;
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  #switcher .label { min-width: 150px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="phone">
+  <header class="top">
+    <h1>🛒 Shopping list</h1>
+    <p id="subtitle"></p>
+  </header>
+  <main id="main"></main>
+</div>
+
+<div id="switcher">
+  <button id="prev" aria-label="Previous variant">←</button>
+  <span class="label" id="switcher-label"></span>
+  <button id="next" aria-label="Next variant">→</button>
+</div>
+
+<script>
+// ---- mock data, shaped like src/shopping.ts + src/list.ts ----
+// ShoppingListEntry: { id, source, productName, freeText, status }
+// ExpiringLot: { lotId, productName, quantity, unit, estExpiry }
+// CycleGuess: { productId, productName }
+
+let entries = [
+  { id: 1, source: "staple", productName: "Olive oil", freeText: null, status: "open" },
+  { id: 2, source: "finished", productName: "Milk", freeText: null, status: "open" },
+  { id: 3, source: "recipe_missing", productName: "Basil", freeText: null, status: "open" },
+  { id: 4, source: "manual", productName: null, freeText: "Birthday candles", status: "open" },
+  { id: 5, source: "manual", productName: "Eggs", freeText: null, status: "done" },
+];
+
+let expiringLots = [
+  { lotId: 101, productName: "Greek yoghurt", quantity: 2, unit: "pots", estExpiry: daysFromNow(1) },
+  { lotId: 102, productName: "Spinach", quantity: 1, unit: "bag", estExpiry: daysFromNow(2) },
+];
+
+let cycleGuesses = [
+  { productId: 201, productName: "Washing-up liquid" },
+  { productId: 202, productName: "Coffee" },
+];
+
+let nextEntryId = 6;
+
+function daysFromNow(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+const SOURCE_LABEL = {
+  finished: "auto-relist",
+  staple: "staple",
+  recipe_missing: "recipe",
+  manual: null, // manual is the default add path — no badge needed
+  cycle_guess: "probably low",
+};
+
+function toggleDone(id) {
+  const e = entries.find((x) => x.id === id);
+  if (e) e.status = e.status === "open" ? "done" : "open";
+  render();
+}
+function removeEntry(id) {
+  entries = entries.filter((x) => x.id !== id);
+  render();
+}
+function addEntry(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  entries.push({ id: nextEntryId++, source: "manual", productName: null, freeText: trimmed, status: "open" });
+  render();
+}
+function acceptGuess(productId) {
+  const g = cycleGuesses.find((x) => x.productId === productId);
+  if (!g) return;
+  cycleGuesses = cycleGuesses.filter((x) => x.productId !== productId);
+  entries.push({ id: nextEntryId++, source: "cycle_guess", productName: g.productName, freeText: null, status: "open" });
+  render();
+}
+function dismissGuess(productId) {
+  // per shopping.ts: "skip" leaves no trace — nothing persisted, just removed from view
+  cycleGuesses = cycleGuesses.filter((x) => x.productId !== productId);
+  render();
+}
+function dismissLot(lotId) {
+  expiringLots = expiringLots.filter((x) => x.lotId !== lotId);
+  render();
+}
+
+function entryLabel(e) {
+  return e.productName ?? e.freeText;
+}
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ---------------- Variant A: unified single list ----------------
+// Everything — list rows, expiring heads-up, cycle guesses — lives in one
+// scrollable column, grouped by section dividers. Nothing is collapsed or
+// tucked away; the whole state of the list is visible in one glance.
+function renderVariantA() {
+  const open = entries.filter((e) => e.status === "open");
+  const done = entries.filter((e) => e.status === "done");
+
+  let html = "";
+
+  if (expiringLots.length > 0) {
+    html += `<div class="section-title">⏰ Use soon / don't rebuy</div>`;
+    for (const lot of expiringLots) {
+      html += `
+        <div class="signal-card expiring">
+          <div class="icon">⏰</div>
+          <div class="body">
+            <div class="title">${esc(lot.productName)}</div>
+            <div class="meta">${lot.quantity} ${lot.unit ?? ""} · exp ${lot.estExpiry}</div>
+          </div>
+          <button class="pill-btn dismiss" onclick="dismissLot(${lot.lotId})">Got it</button>
+        </div>`;
+    }
+  }
+
+  html += `<div class="section-title">🛒 List</div>`;
+  html += `<ul class="rows">`;
+  if (open.length === 0) {
+    html += `<li class="empty">Nothing on the list.</li>`;
+  }
+  for (const e of open) {
+    html += rowHtml(e);
+  }
+  html += `</ul>`;
+
+  html += `<div class="add-row">
+    <input id="add-input" placeholder="Add something…" onkeydown="if(event.key==='Enter'){addEntry(this.value); this.value='';}" />
+    <button onclick="const i=document.getElementById('add-input'); addEntry(i.value); i.value='';">Add</button>
+  </div>`;
+
+  if (cycleGuesses.length > 0) {
+    html += `<div class="section-title">🔁 Probably low</div>`;
+    for (const g of cycleGuesses) {
+      html += `
+        <div class="signal-card guess">
+          <div class="icon">🔁</div>
+          <div class="body">
+            <div class="title">${esc(g.productName)}</div>
+            <div class="meta">Based on your usual buying cadence</div>
+          </div>
+          <button class="pill-btn dismiss" onclick="dismissGuess(${g.productId})">Skip</button>
+          <button class="pill-btn accept" onclick="acceptGuess(${g.productId})">Add</button>
+        </div>`;
+    }
+  }
+
+  if (done.length > 0) {
+    html += `<div class="section-title">Checked off</div>`;
+    html += `<ul class="rows">`;
+    for (const e of done) html += rowHtml(e);
+    html += `</ul>`;
+  }
+
+  return html;
+}
+
+function rowHtml(e) {
+  const label = entryLabel(e);
+  const tag = SOURCE_LABEL[e.source];
+  return `
+    <li class="row">
+      <button class="check ${e.status === "done" ? "done" : ""}" onclick="toggleDone(${e.id})">${e.status === "done" ? "✓" : ""}</button>
+      <div class="row-main">
+        <span class="row-name ${e.status === "done" ? "done" : ""}">${esc(label)}</span>
+        ${tag ? `<span class="tag">${tag}</span>` : ""}
+      </div>
+      <button class="remove-x" onclick="removeEntry(${e.id})" aria-label="Remove">✕</button>
+    </li>`;
+}
+
+// ---------------- Variant B: triage strip + list ----------------
+// Expiring items and Cycle Guesses are pulled out of the flow entirely into
+// a horizontal, swipeable strip of action cards at the top — a "deal with
+// these first" feed. The list itself is the calm, plain part of the screen.
+function renderVariantB() {
+  const open = entries.filter((e) => e.status === "open");
+  const done = entries.filter((e) => e.status === "done");
+
+  let html = "";
+
+  const hasSignals = expiringLots.length > 0 || cycleGuesses.length > 0;
+  if (hasSignals) {
+    html += `<div class="section-title">Needs a decision</div>`;
+    html += `<div class="strip">`;
+    for (const lot of expiringLots) {
+      html += `
+        <div class="signal-card expiring">
+          <div class="icon">⏰</div>
+          <div class="body">
+            <div class="title">${esc(lot.productName)}</div>
+            <div class="meta">${lot.quantity} ${lot.unit ?? ""} · exp ${lot.estExpiry}</div>
+          </div>
+          <div class="actions">
+            <button class="pill-btn dismiss" onclick="dismissLot(${lot.lotId})">Got it</button>
+          </div>
+        </div>`;
+    }
+    for (const g of cycleGuesses) {
+      html += `
+        <div class="signal-card guess">
+          <div class="icon">🔁</div>
+          <div class="body">
+            <div class="title">${esc(g.productName)}</div>
+            <div class="meta">Probably low</div>
+          </div>
+          <div class="actions">
+            <button class="pill-btn dismiss" onclick="dismissGuess(${g.productId})">Skip</button>
+            <button class="pill-btn accept" onclick="acceptGuess(${g.productId})">Add</button>
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+  } else {
+    html += `<div class="strip-empty">Nothing needs a decision right now.</div>`;
+  }
+
+  html += `<div class="section-title">🛒 List<span>${open.length} open</span></div>`;
+  html += `<ul class="rows">`;
+  if (open.length === 0) {
+    html += `<li class="empty">Nothing on the list.</li>`;
+  }
+  for (const e of open) html += rowHtml(e);
+  html += `</ul>`;
+
+  html += `<div class="add-row">
+    <input id="add-input" placeholder="Add something…" onkeydown="if(event.key==='Enter'){addEntry(this.value); this.value='';}" />
+    <button onclick="const i=document.getElementById('add-input'); addEntry(i.value); i.value='';">Add</button>
+  </div>`;
+
+  if (done.length > 0) {
+    html += `<div class="section-title">Checked off</div>`;
+    html += `<ul class="rows">`;
+    for (const e of done) html += rowHtml(e);
+    html += `</ul>`;
+  }
+
+  return html;
+}
+
+// ---------------- Variant C: progressive disclosure accordion ----------------
+// The list is the only thing open by default. "Use soon" and "Probably low"
+// are collapsed sections with a count badge — you open them on purpose
+// instead of always scrolling past them. Add is a FAB, not an inline row.
+function renderVariantC() {
+  const open = entries.filter((e) => e.status === "open");
+  const done = entries.filter((e) => e.status === "done");
+
+  let html = "";
+
+  if (expiringLots.length > 0) {
+    html += `
+      <details class="acc" open>
+        <summary>⏰ Use soon / don't rebuy <span class="count">${expiringLots.length}</span></summary>
+        <div class="acc-body">
+          ${expiringLots
+            .map(
+              (lot) => `
+            <div class="signal-card expiring">
+              <div class="icon">⏰</div>
+              <div class="body">
+                <div class="title">${esc(lot.productName)}</div>
+                <div class="meta">${lot.quantity} ${lot.unit ?? ""} · exp ${lot.estExpiry}</div>
+              </div>
+              <button class="pill-btn dismiss" onclick="dismissLot(${lot.lotId})">Got it</button>
+            </div>`,
+            )
+            .join("")}
+        </div>
+      </details>`;
+  }
+
+  html += `
+    <details class="acc" open>
+      <summary>🛒 List <span class="count">${open.length} open</span></summary>
+      <div class="acc-body">
+        <ul class="rows">
+          ${open.length === 0 ? `<li class="empty">Nothing on the list.</li>` : open.map(rowHtml).join("")}
+        </ul>
+      </div>
+    </details>`;
+
+  if (cycleGuesses.length > 0) {
+    html += `
+      <details class="acc">
+        <summary>🔁 Probably low <span class="count">${cycleGuesses.length}</span></summary>
+        <div class="acc-body">
+          ${cycleGuesses
+            .map(
+              (g) => `
+            <div class="signal-card guess">
+              <div class="icon">🔁</div>
+              <div class="body">
+                <div class="title">${esc(g.productName)}</div>
+                <div class="meta">Based on your usual buying cadence</div>
+              </div>
+              <button class="pill-btn dismiss" onclick="dismissGuess(${g.productId})">Skip</button>
+              <button class="pill-btn accept" onclick="acceptGuess(${g.productId})">Add</button>
+            </div>`,
+            )
+            .join("")}
+        </div>
+      </details>`;
+  }
+
+  if (done.length > 0) {
+    html += `
+      <details class="acc">
+        <summary>Checked off <span class="count">${done.length}</span></summary>
+        <div class="acc-body">
+          <ul class="rows">${done.map(rowHtml).join("")}</ul>
+        </div>
+      </details>`;
+  }
+
+  html += `<button class="fab" onclick="const t=prompt('Add to list:'); if(t) addEntry(t);" aria-label="Add item">+</button>`;
+
+  return html;
+}
+
+const VARIANTS = {
+  A: { name: "Unified list", render: renderVariantA },
+  B: { name: "Triage strip + list", render: renderVariantB },
+  C: { name: "Accordion / progressive disclosure", render: renderVariantC },
+};
+const ORDER = ["A", "B", "C"];
+
+function currentVariant() {
+  const params = new URLSearchParams(location.search);
+  const v = params.get("variant");
+  return VARIANTS[v] ? v : "A";
+}
+
+function setVariant(v) {
+  const params = new URLSearchParams(location.search);
+  params.set("variant", v);
+  history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
+  render();
+}
+
+function render() {
+  const v = currentVariant();
+  document.getElementById("main").innerHTML = VARIANTS[v].render();
+  document.getElementById("subtitle").textContent =
+    `PROTOTYPE — variant ${v}: ${VARIANTS[v].name}`;
+  document.getElementById("switcher-label").textContent = `${v} — ${VARIANTS[v].name}`;
+}
+
+function cycle(dir) {
+  const v = currentVariant();
+  const idx = ORDER.indexOf(v);
+  const next = ORDER[(idx + dir + ORDER.length) % ORDER.length];
+  setVariant(next);
+}
+
+document.getElementById("prev").addEventListener("click", () => cycle(-1));
+document.getElementById("next").addEventListener("click", () => cycle(1));
+document.addEventListener("keydown", (ev) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
+  if (ev.key === "ArrowLeft") cycle(-1);
+  if (ev.key === "ArrowRight") cycle(1);
+});
+
+render();
+</script>
+</body>
+</html>

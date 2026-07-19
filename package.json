@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "prototype:shopping-screen": "open src/prototype/shopping-screen.PROTOTYPE.html",
     "postinstall": "lefthook install"
   },
   "dependencies": {
