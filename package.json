@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "prototype:staples-prefs": "open src/prototype/staples-prefs-screen.PROTOTYPE.html",
     "postinstall": "lefthook install"
   },
   "dependencies": {

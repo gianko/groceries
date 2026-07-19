@@ -1,0 +1,452 @@
+<!--
+  PROTOTYPE — throwaway, for issue #31.
+  Question: what should the staples + household prefs screen look/feel like —
+  how declared Staples (src/staple.ts) are listed/added/removed, and how the
+  two prefs fields (src/prefs.ts: householdSize, blurb) are edited as real
+  form inputs instead of free-text chat replies. Also live: does un-staple
+  need a real affordance (no unstaple function exists in staple.ts today —
+  isStaple only ever gets set to true), and do the two forms read better as
+  one combined screen or two separate ones given how small each is alone.
+
+  Two variants, switchable via ?variant=A|B (defaults to A), or the floating
+  bottom bar / left-right arrow keys.
+
+  - A - combined screen: staples list and prefs form stacked on one screen,
+    separated by a section divider.
+  - B - two screens: a tab strip switches between "Staples" and "Prefs".
+
+  No backend: all state is in-memory mock data mirroring the shapes in
+  src/staple.ts (StapleResult / Product.isStaple) and src/prefs.ts (Prefs).
+  Actions (add/remove staple, edit prefs) mutate local state only.
+
+  Run it: just open this file directly in a browser (or
+  `pnpm run prototype:staples-prefs`).
+  DO NOT promote this file itself to production — fold the winning variant
+  into real code, then move this whole thing to the throwaway branch.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROTOTYPE — staples/prefs screen</title>
+<style>
+  :root {
+    --bg: #f4f3ef;
+    --card: #ffffff;
+    --ink: #1c1c1c;
+    --muted: #6b6b66;
+    --line: #e6e4dd;
+    --accent: #2f7a4f;
+    --accent-soft: #e4f2e9;
+    --danger: #b3261e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    justify-content: center;
+  }
+  #phone {
+    width: 100%;
+    max-width: 430px;
+    min-height: 100vh;
+    background: var(--card);
+    box-shadow: 0 0 40px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+  }
+  header.top {
+    padding: 18px 16px 0;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--card);
+    z-index: 5;
+  }
+  header.top h1 { margin: 0 0 2px; font-size: 1.15rem; }
+  header.top p { margin: 2px 0 12px; font-size: 0.8rem; color: var(--muted); }
+  .tabs { display: flex; gap: 4px; margin-top: 6px; }
+  .tabs button {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 10px 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+  .tabs button.active { color: var(--ink); border-bottom-color: var(--accent); }
+  main {
+    flex: 1;
+    padding: 16px 16px 100px;
+    overflow-y: auto;
+  }
+  .section-title {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 20px 0 8px;
+  }
+  .section-title:first-child { margin-top: 0; }
+  ul.rows { list-style: none; margin: 0; padding: 0; }
+  li.row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--line);
+  }
+  li.row:last-child { border-bottom: none; }
+  .row-name { flex: 1; font-size: 0.95rem; }
+  .row-tag {
+    font-size: 0.68rem;
+    color: var(--muted);
+    background: #eee;
+    padding: 1px 7px;
+    border-radius: 20px;
+  }
+  .remove-x {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 1.05rem;
+    cursor: pointer;
+    padding: 4px 6px;
+    flex: none;
+  }
+  .remove-x:hover { color: var(--danger); }
+  .empty { color: var(--muted); font-size: 0.88rem; padding: 8px 4px; }
+  .add-row { display: flex; gap: 8px; margin-top: 14px; }
+  .add-row input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-size: 0.9rem;
+  }
+  .add-row button {
+    padding: 10px 14px;
+    border: none;
+    border-radius: 10px;
+    background: var(--ink);
+    color: white;
+    font-size: 0.85rem;
+  }
+  .hint { font-size: 0.72rem; color: var(--muted); margin-top: 8px; }
+
+  .field { margin-bottom: 18px; }
+  .field label {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .field .field-hint {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-top: 5px;
+  }
+  .stepper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .stepper button {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    font-size: 1.1rem;
+    cursor: pointer;
+  }
+  .stepper .count {
+    font-size: 1.1rem;
+    font-weight: 600;
+    min-width: 24px;
+    text-align: center;
+  }
+  textarea, input[type=text] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+  textarea { min-height: 84px; resize: vertical; }
+  .save-bar {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
+  }
+  .save-bar button {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: white;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .save-bar button:disabled { background: #c9c7bf; cursor: default; }
+  .saved-flash {
+    font-size: 0.78rem;
+    color: var(--accent);
+    align-self: center;
+    margin-right: 10px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .saved-flash.show { opacity: 1; }
+  .divider { border: none; border-top: 1px solid var(--line); margin: 8px 0 4px; }
+
+  #switcher {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    background: #16181d;
+    color: #fff;
+    border-radius: 999px;
+    padding: 8px 6px 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: ui-monospace, monospace;
+    font-size: 0.78rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    z-index: 50;
+  }
+  #switcher button {
+    background: #2a2d35;
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  #switcher .label { min-width: 190px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="phone">
+  <header class="top">
+    <h1>⚙️ Staples &amp; prefs</h1>
+    <p id="subtitle"></p>
+    <div class="tabs" id="tabs"></div>
+  </header>
+  <main id="main"></main>
+</div>
+
+<div id="switcher">
+  <button id="prev" aria-label="Previous variant">←</button>
+  <span class="label" id="switcher-label"></span>
+  <button id="next" aria-label="Next variant">→</button>
+</div>
+
+<script>
+// ---- mock data, shaped like src/staple.ts (Product.isStaple) + src/prefs.ts (Prefs) ----
+
+let staples = [
+  { id: 1, name: "Olive oil", category: "food" },
+  { id: 2, name: "Salt", category: "food" },
+  { id: 3, name: "Black pepper", category: "food" },
+  { id: 4, name: "Washing-up liquid", category: "household" },
+];
+let nextStapleId = 5;
+
+let prefs = { householdSize: 2, blurb: "weeknight meals under 45 min" };
+let draftPrefs = { ...prefs };
+
+function addStaple(rawName) {
+  const name = rawName.trim();
+  if (!name) return;
+  const existing = staples.find((s) => s.name.toLowerCase() === name.toLowerCase());
+  if (existing) return; // setStaple is idempotent on an existing Product
+  staples.push({ id: nextStapleId++, name, category: "food" });
+  render();
+}
+
+// No unstaple() exists in staple.ts today — this button is the prototype
+// question: does declaring "no longer a staple" need real UI, or did that
+// never come up because nothing ever surfaced it?
+function removeStaple(id) {
+  staples = staples.filter((s) => s.id !== id);
+  render();
+}
+
+function bumpHouseholdSize(delta) {
+  draftPrefs.householdSize = Math.max(1, (draftPrefs.householdSize ?? 1) + delta);
+  render();
+}
+
+function updateBlurbDraft(value) {
+  draftPrefs.blurb = value;
+  renderSaveState();
+}
+
+function prefsDirty() {
+  return draftPrefs.householdSize !== prefs.householdSize || draftPrefs.blurb !== prefs.blurb;
+}
+
+function savePrefs() {
+  prefs = { ...draftPrefs };
+  render();
+  const flash = document.getElementById("saved-flash");
+  if (flash) {
+    flash.classList.add("show");
+    setTimeout(() => flash.classList.remove("show"), 1400);
+  }
+}
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function stapleRowsHtml() {
+  if (staples.length === 0) {
+    return `<li class="empty">No staples declared yet.</li>`;
+  }
+  return staples
+    .map(
+      (s) => `
+    <li class="row">
+      <span class="row-name">${esc(s.name)}</span>
+      <span class="row-tag">${esc(s.category)}</span>
+      <button class="remove-x" onclick="removeStaple(${s.id})" aria-label="Un-staple ${esc(s.name)}">✕</button>
+    </li>`,
+    )
+    .join("");
+}
+
+function staplesSectionHtml() {
+  return `
+    <div class="section-title">📌 Staples</div>
+    <ul class="rows">${stapleRowsHtml()}</ul>
+    <div class="add-row">
+      <input id="staple-input" placeholder="Add a staple…" onkeydown="if(event.key==='Enter'){addStaple(this.value); this.value='';}" />
+      <button onclick="const i=document.getElementById('staple-input'); addStaple(i.value); i.value='';">Add</button>
+    </div>
+    <p class="hint">New staples default to category "food" — matches setStaple's Product-creation default.</p>
+  `;
+}
+
+function prefsSectionHtml() {
+  const dirty = prefsDirty();
+  return `
+    <div class="section-title">👨‍👩‍👧 Household prefs</div>
+    <div class="field">
+      <label>Household size</label>
+      <div class="stepper">
+        <button onclick="bumpHouseholdSize(-1)" aria-label="Decrease">−</button>
+        <span class="count">${draftPrefs.householdSize}</span>
+        <button onclick="bumpHouseholdSize(1)" aria-label="Increase">+</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Cooking notes</label>
+      <textarea id="blurb-input" oninput="updateBlurbDraft(this.value)" placeholder="e.g. weeknight meals under 45 min">${esc(draftPrefs.blurb ?? "")}</textarea>
+      <div class="field-hint">Used by the cook/recipe flow — free text, same as today's blurb field.</div>
+    </div>
+    <div class="save-bar">
+      <span class="saved-flash" id="saved-flash">Saved</span>
+      <button onclick="savePrefs()" ${dirty ? "" : "disabled"}>Save</button>
+    </div>
+  `;
+}
+
+// ---------------- Variant A: combined single screen ----------------
+function renderVariantA() {
+  return `
+    ${staplesSectionHtml()}
+    <hr class="divider" />
+    ${prefsSectionHtml()}
+  `;
+}
+
+// ---------------- Variant B: two screens, tab strip ----------------
+let activeTab = "staples";
+function setTab(t) {
+  activeTab = t;
+  render();
+}
+function renderVariantB() {
+  return activeTab === "staples" ? staplesSectionHtml() : prefsSectionHtml();
+}
+
+const VARIANTS = {
+  A: { name: "Combined single screen", render: renderVariantA },
+  B: { name: "Two screens, tab strip", render: renderVariantB },
+};
+const ORDER = ["A", "B"];
+
+function currentVariant() {
+  const params = new URLSearchParams(location.search);
+  const v = params.get("variant");
+  return VARIANTS[v] ? v : "A";
+}
+
+function setVariant(v) {
+  const params = new URLSearchParams(location.search);
+  params.set("variant", v);
+  history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
+  render();
+}
+
+function renderSaveState() {
+  const btn = document.querySelector(".save-bar button");
+  if (btn) btn.disabled = !prefsDirty();
+}
+
+function render() {
+  const v = currentVariant();
+  const tabsEl = document.getElementById("tabs");
+  if (v === "B") {
+    tabsEl.style.display = "flex";
+    tabsEl.innerHTML = `
+      <button class="${activeTab === "staples" ? "active" : ""}" onclick="setTab('staples')">Staples</button>
+      <button class="${activeTab === "prefs" ? "active" : ""}" onclick="setTab('prefs')">Prefs</button>
+    `;
+  } else {
+    tabsEl.style.display = "none";
+    tabsEl.innerHTML = "";
+  }
+
+  document.getElementById("main").innerHTML = VARIANTS[v].render();
+  document.getElementById("subtitle").textContent =
+    `PROTOTYPE — variant ${v}: ${VARIANTS[v].name}`;
+  document.getElementById("switcher-label").textContent = `${v} — ${VARIANTS[v].name}`;
+}
+
+function cycle(dir) {
+  const v = currentVariant();
+  const idx = ORDER.indexOf(v);
+  const next = ORDER[(idx + dir + ORDER.length) % ORDER.length];
+  setVariant(next);
+}
+
+document.getElementById("prev").addEventListener("click", () => cycle(-1));
+document.getElementById("next").addEventListener("click", () => cycle(1));
+document.addEventListener("keydown", (ev) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable) return;
+  if (ev.key === "ArrowLeft") cycle(-1);
+  if (ev.key === "ArrowRight") cycle(1);
+});
+
+render();
+</script>
+</body>
+</html>
