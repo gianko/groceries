@@ -277,6 +277,75 @@ const { title } = Astro.props;
         color: var(--muted);
         padding: 8px 4px;
       }
+      .section-divider {
+        margin: 20px 16px;
+        border: none;
+        border-top: 1px solid var(--line);
+      }
+      .prefs-field {
+        margin: 0 12px 16px;
+      }
+      .prefs-label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .stepper {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        background: var(--card);
+        border-radius: 12px;
+        padding: 8px 14px;
+        width: fit-content;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      }
+      .stepper-btn {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: none;
+        background: var(--bg);
+        color: var(--ink);
+        font-size: 18px;
+        line-height: 1;
+      }
+      .stepper-btn:disabled {
+        opacity: 0.4;
+      }
+      .stepper-value {
+        min-width: 20px;
+        text-align: center;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .prefs-textarea {
+        width: 100%;
+        min-height: 88px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        font: inherit;
+        font-size: 15px;
+        background: var(--card);
+        resize: vertical;
+      }
+      .save-btn {
+        display: block;
+        width: calc(100% - 24px);
+        margin: 4px 12px 12px;
+        padding: 12px;
+        border: none;
+        border-radius: 12px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .save-btn:disabled {
+        opacity: 0.5;
+      }
     </style>
   </head>
   <body>

@@ -1,0 +1,17 @@
+---
+import { fetchPrefs } from "../../../src/prefs.js";
+import { fetchStaples } from "../../../src/staple.js";
+import StaplesPrefsScreen from "../components/StaplesPrefsScreen";
+import Base from "../layouts/Base.astro";
+import { getDb } from "../lib/webDb.js";
+
+// Server-rendered at request time per #32 — same pattern as #27/#30, no
+// fetch-on-mount for the initial staples list + prefs values.
+const db = getDb();
+const staples = fetchStaples(db);
+const prefs = fetchPrefs(db);
+---
+
+<Base title="Staples & Prefs">
+  <StaplesPrefsScreen client:load staples={staples} prefs={prefs} />
+</Base>

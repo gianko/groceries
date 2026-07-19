@@ -3,8 +3,10 @@ import { z } from "zod";
 import { systemClock } from "../../../src/clock.js";
 import { decideAutoRelist as decideAutoRelistDb, finishBatch } from "../../../src/finish.js";
 import { addManualEntry, fetchOpenEntries, type ShoppingListEntry } from "../../../src/list.js";
+import { savePrefs } from "../../../src/prefs.js";
 import { clearEntry } from "../../../src/reconcile.js";
 import { addCycleGuessEntry } from "../../../src/shopping.js";
+import { fetchStaples, setStaple, unstaple as unstapleDb } from "../../../src/staple.js";
 import { sendGroupEcho } from "../lib/echo.js";
 import { getDb } from "../lib/webDb.js";
 
@@ -12,8 +14,8 @@ function entryLabel(entry: ShoppingListEntry): string {
   return entry.productName ?? entry.freeText ?? "";
 }
 
-// The three shopping echoes per #28/#30 share this "label by actor" shape;
-// only the verb/suffix/emoji differ.
+// Shared "label by actor" shape for every group echo (shopping per #28/#30,
+// staples per #32) — only the verb/suffix/emoji differ.
 function echoEntry(label: string, verb: string, actor: string, emoji: string): void {
   sendGroupEcho(`${label} ${verb} by ${actor} ${emoji}`);
 }
@@ -72,6 +74,34 @@ export const server = {
         );
         return entry;
       },
+    }),
+  },
+  staple: {
+    setStaple: defineAction({
+      input: z.object({ name: z.string().min(1) }),
+      handler: ({ name }, context) => {
+        const db = getDb();
+        const result = setStaple(db, name);
+        echoEntry(result.productName, "added as a staple", context.locals.userName, "📌");
+        return { staples: fetchStaples(db) };
+      },
+    }),
+    unstaple: defineAction({
+      input: z.object({ name: z.string().min(1) }),
+      handler: ({ name }, context) => {
+        const db = getDb();
+        const productName = unstapleDb(db, name);
+        if (productName) {
+          echoEntry(productName, "removed as a staple", context.locals.userName, "📌");
+        }
+        return { staples: fetchStaples(db) };
+      },
+    }),
+  },
+  prefs: {
+    savePrefs: defineAction({
+      input: z.object({ householdSize: z.number().int().min(1), blurb: z.string() }),
+      handler: ({ householdSize, blurb }) => savePrefs(getDb(), { householdSize, blurb }),
     }),
   },
 };
