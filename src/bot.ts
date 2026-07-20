@@ -197,15 +197,28 @@ export function createBot(
   botConfig?: BotConfig<Context>,
 ): Bot {
   const bot = new Bot(config.telegramBotToken, botConfig);
+
+  // Without this, grammY rethrows any handler error as an unhandled
+  // rejection, which kills the whole process on a single bad update — one
+  // Telegram API error (e.g. an invalid button) shouldn't take the bot down
+  // for both household members.
+  bot.catch((err) => {
+    console.error("Unhandled bot error", err.error);
+  });
+
   const { brain } = deps;
   const clock = deps.clock ?? systemClock;
   const downloadPhoto = deps.downloadPhoto ?? createDefaultPhotoDownloader(config.telegramBotToken);
 
   // Appends a row that opens the Mini App at `path`. The chat menu button
-  // only ever shows in private chats with the bot, never in a group, so
-  // this is the only way to reach a Mini App screen from group messages.
+  // only ever shows in private chats with the bot, and Telegram rejects an
+  // inline keyboard's `web_app` button type outside private chats too
+  // (BUTTON_TYPE_INVALID) — so a plain URL button pointing at a `t.me`
+  // deep link is the only way to reach a Mini App screen from group
+  // messages. The Mini App itself resolves `startapp` back to `path`
+  // client-side (see web/src/lib/bootstrapHtml.ts and index.astro).
   function addWebAppRow(keyboard: InlineKeyboard, label: string, path: string): InlineKeyboard {
-    return keyboard.row().webApp(label, webAppUrl(config, path));
+    return keyboard.row().url(label, webAppDeepLink(bot.botInfo.username, path));
   }
 
   // Photo bytes and the pending extraction live only in process memory, keyed
@@ -914,8 +927,14 @@ function createDefaultPhotoDownloader(token: string): PhotoDownloader {
   };
 }
 
-function webAppUrl(config: Config, path: string): string {
-  return `${config.webAppUrl}${path}`;
+// Telegram only passes a `startapp` token through a t.me deep link, not a
+// path, so the root screen (no token needed) is the one path that can't
+// round-trip through this — every other screen's start param is just its
+// path with the leading slash stripped, matched back to a path client-side.
+function webAppDeepLink(botUsername: string, path: string): string {
+  const startParam = path === "/" ? undefined : path.slice(1);
+  const base = `https://t.me/${botUsername}`;
+  return startParam ? `${base}?startapp=${startParam}` : base;
 }
 
 function buildReceiptKeyboard(): InlineKeyboard {
