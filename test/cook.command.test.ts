@@ -126,6 +126,7 @@ describe("/cook", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
 
@@ -145,6 +146,7 @@ describe("/cook", () => {
         { name: "kidney beans", quantity: 1, unit: "can", present: false },
       ],
       missingCount: 1,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
 
@@ -166,6 +168,7 @@ describe("/cook", () => {
         { name: "chopped scallions", quantity: 1, unit: null, present: true },
       ],
       missingCount: 0,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
 
@@ -184,6 +187,7 @@ describe("/cook", () => {
       title: "Simple pasta",
       ingredients: [{ name: "salt", quantity: 1, unit: "pinch", present: false }],
       missingCount: 1,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
 
@@ -204,6 +208,7 @@ describe("/cook", () => {
         { name: "d", quantity: 1, unit: null, present: false },
       ],
       missingCount: 4,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
 
@@ -230,6 +235,7 @@ describe("/cook", () => {
         { name: "kidney beans", quantity: 1, unit: "can", present: false },
       ],
       missingCount: 1,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
     await runCook(harness);
@@ -260,6 +266,7 @@ describe("/cook", () => {
       title: "Chili",
       ingredients: [{ name: "kidney beans", quantity: 1, unit: "can", present: false }],
       missingCount: 1,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
     await runCook(harness);
@@ -298,6 +305,7 @@ describe("/cook", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
     await runCook(harness);
@@ -334,6 +342,7 @@ describe("/cook", () => {
       title: "Fried rice",
       ingredients: [{ name: "rice", quantity: 3, unit: "cup", present: true }],
       missingCount: 0,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
     await runCook(harness);
@@ -395,6 +404,7 @@ describe("/cook", () => {
       title: "Fried rice",
       ingredients: [{ name: "rice", quantity: 3, unit: "cup", present: true }],
       missingCount: 0,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
     await runCook(harness);
@@ -456,6 +466,7 @@ describe("/cook", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
     await runCook(harness);
@@ -508,6 +519,7 @@ describe("/cook", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
     await runCook(harness);
@@ -630,6 +642,7 @@ describe("/cook", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
+      instructions: [],
     };
     harness.brain.scriptSuggestRecipes(ok([recipe]));
     await runCook(harness);

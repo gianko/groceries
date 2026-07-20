@@ -132,6 +132,7 @@ function recipe(overrides: Partial<RecipeSuggestion>): RecipeSuggestion {
     title: "Test recipe",
     ingredients: [],
     missingCount: 0,
+    instructions: [],
     ...overrides,
   };
 }
@@ -187,16 +188,19 @@ describe("tierRecipes", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 1, unit: null, present: true }],
       missingCount: 0,
+      instructions: [],
     };
     const almostThere = {
       title: "Chili",
       ingredients: [{ name: "kidney beans", quantity: 1, unit: null, present: false }],
       missingCount: 1,
+      instructions: [],
     };
     const tooManyMissing = {
       title: "Fancy stew",
       ingredients: [],
       missingCount: 4,
+      instructions: [],
     };
 
     const tiers = tierRecipes([fullyCovered, almostThere, tooManyMissing]);
@@ -212,7 +216,9 @@ describe("renderCookTonight", () => {
   });
 
   it("lists recipe titles", () => {
-    const text = renderCookTonight([{ title: "Beans on toast", ingredients: [], missingCount: 0 }]);
+    const text = renderCookTonight([
+      { title: "Beans on toast", ingredients: [], missingCount: 0, instructions: [] },
+    ]);
     expect(text).toContain("Beans on toast");
   });
 });
@@ -226,6 +232,7 @@ describe("renderAlmostThereRecipe", () => {
         { name: "rice", quantity: 200, unit: "g", present: true },
       ],
       missingCount: 1,
+      instructions: [],
     });
 
     expect(text).toContain("Chili");
@@ -289,7 +296,7 @@ function seedProductLot(
 }
 
 function cookRecipe(overrides: Partial<CookRecipe>): CookRecipe {
-  return { title: "Test recipe", ingredients: [], missingCount: 0, ...overrides };
+  return { title: "Test recipe", ingredients: [], missingCount: 0, instructions: [], ...overrides };
 }
 
 describe("decrementForRecipe", () => {
@@ -447,6 +454,7 @@ describe("saveCookedRecipe / rateRecipe", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
+      instructions: ["Toast bread", "Add beans"],
     });
 
     const saved = db
@@ -476,6 +484,7 @@ describe("saveCookedRecipe / rateRecipe", () => {
       title: "Chili",
       ingredients: [],
       missingCount: 0,
+      instructions: [],
     });
 
     const first = rateRecipe(db, recipeId, "up");
@@ -500,16 +509,19 @@ describe("fetchFavoriteRecipes", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
+      instructions: ["Toast bread", "Add beans"],
     });
     const dislikedId = saveCookedRecipe(db, clock, {
       title: "Fancy stew",
       ingredients: [],
       missingCount: 0,
+      instructions: [],
     });
     saveCookedRecipe(db, clock, {
       title: "Pending verdict",
       ingredients: [],
       missingCount: 0,
+      instructions: [],
     });
     rateRecipe(db, likedId, "up");
     rateRecipe(db, dislikedId, "down");
@@ -517,7 +529,11 @@ describe("fetchFavoriteRecipes", () => {
     const favorites = fetchFavoriteRecipes(db);
 
     expect(favorites).toEqual([
-      { title: "Beans on toast", ingredients: [{ name: "bread", quantity: 2, unit: "slice" }] },
+      {
+        title: "Beans on toast",
+        ingredients: [{ name: "bread", quantity: 2, unit: "slice" }],
+        instructions: ["Toast bread", "Add beans"],
+      },
     ]);
   });
 
@@ -528,6 +544,7 @@ describe("fetchFavoriteRecipes", () => {
       title: "Chili",
       ingredients: [{ name: "kidney beans", quantity: 1, unit: "can", present: true }],
       missingCount: 0,
+      instructions: [],
     });
     rateRecipe(db, firstCookId, "up");
 
@@ -535,6 +552,7 @@ describe("fetchFavoriteRecipes", () => {
       title: "Chili",
       ingredients: [{ name: "kidney beans", quantity: 1, unit: "can", present: true }],
       missingCount: 0,
+      instructions: [],
     });
     rateRecipe(db, secondCookId, "down");
 
@@ -551,6 +569,7 @@ describe("fetchCoverableFavorites", () => {
           { name: "bread", quantity: 2, unit: "slice" },
           { name: "salt", quantity: 1, unit: "pinch" },
         ],
+        instructions: ["Toast bread"],
       },
     ];
 
@@ -564,6 +583,7 @@ describe("fetchCoverableFavorites", () => {
           { name: "salt", quantity: 1, unit: "pinch", present: true },
         ],
         missingCount: 0,
+        instructions: ["Toast bread"],
       },
     ]);
   });
@@ -576,6 +596,7 @@ describe("fetchCoverableFavorites", () => {
           { name: "kidney beans", quantity: 1, unit: "can" },
           { name: "rice", quantity: 200, unit: "g" },
         ],
+        instructions: [],
       },
     ];
 

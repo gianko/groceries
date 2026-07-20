@@ -86,6 +86,7 @@ export const recipeSuggestionSchema = z.object({
   title: z.string(),
   ingredients: z.array(recipeIngredientSchema),
   missingCount: z.number().int().nonnegative(),
+  instructions: z.array(z.string()),
 });
 export type RecipeSuggestion = z.infer<typeof recipeSuggestionSchema>;
 

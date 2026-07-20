@@ -50,6 +50,9 @@ export interface CookRecipe {
   title: string;
   ingredients: CookIngredient[];
   missingCount: number;
+  // null only for a favorite whose most-recently-cooked row predates this
+  // field (or was never re-cooked since) — see fetchFavoriteRecipes.
+  instructions: string[] | null;
 }
 
 // The Brain is told to reference in-stock ingredients verbatim by Catalog
@@ -61,7 +64,7 @@ export interface CookRecipe {
 // whether they even appear in the inventory list (per CONTEXT.md, a Staple
 // can exist with zero Stock Lots).
 export function reclassifyRecipe(
-  recipe: RecipeSuggestion,
+  recipe: Omit<RecipeSuggestion, "instructions"> & { instructions: string[] | null },
   inventoryNames: ReadonlySet<string>,
   stapleNames: ReadonlySet<string>,
 ): CookRecipe {
@@ -80,6 +83,7 @@ export function reclassifyRecipe(
     title: recipe.title,
     ingredients,
     missingCount: ingredients.filter((i) => !i.present).length,
+    instructions: recipe.instructions,
   };
 }
 
@@ -317,6 +321,7 @@ export interface SavedRecipeIngredient {
 export interface FavoriteRecipe {
   title: string;
   ingredients: SavedRecipeIngredient[];
+  instructions: string[] | null;
 }
 
 // One row per "cooking this" tap, the recipe as actually cooked. Rating
@@ -332,6 +337,7 @@ export function saveCookedRecipe(db: Db, clock: Clock, recipe: CookRecipe): numb
         quantity: i.quantity,
         unit: i.unit,
       })),
+      instructions: recipe.instructions,
       rating: null,
       createdAt: clock.now().toISOString(),
     })
@@ -357,7 +363,12 @@ export function rateRecipe(db: Db, recipeId: number, rating: "up" | "down"): boo
 // favorite, so a later 👎 supersedes an earlier 👍 on a re-cook.
 export function fetchFavoriteRecipes(db: Db): FavoriteRecipe[] {
   const rows = db
-    .select({ title: recipes.title, ingredients: recipes.ingredients, rating: recipes.rating })
+    .select({
+      title: recipes.title,
+      ingredients: recipes.ingredients,
+      instructions: recipes.instructions,
+      rating: recipes.rating,
+    })
     .from(recipes)
     .orderBy(desc(recipes.id))
     .all();
@@ -372,7 +383,11 @@ export function fetchFavoriteRecipes(db: Db): FavoriteRecipe[] {
 
   return [...latestByTitle.values()]
     .filter((row) => row.rating === "up")
-    .map((row) => ({ title: row.title, ingredients: row.ingredients }));
+    .map((row) => ({
+      title: row.title,
+      ingredients: row.ingredients,
+      instructions: row.instructions ?? null,
+    }));
 }
 
 // The deterministic favorites-first pass: a liked recipe is only surfaced
@@ -393,6 +408,7 @@ export function fetchCoverableFavorites(
           title: favorite.title,
           ingredients: favorite.ingredients.map((i) => ({ ...i, present: true })),
           missingCount: 0,
+          instructions: favorite.instructions,
         },
         inventoryNames,
         stapleNames,
