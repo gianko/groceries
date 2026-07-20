@@ -13,7 +13,7 @@ export function bootstrapHtml(): string {
 (function () {
   var initData = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData;
   if (initData) {
-    document.cookie = "tg_init_data=" + encodeURIComponent(initData) + "; path=/; max-age=86400; samesite=lax";
+    document.cookie = "tg_init_data=" + encodeURIComponent(initData) + "; path=/; max-age=86400; samesite=none; secure";
     location.reload();
   }
 })();
