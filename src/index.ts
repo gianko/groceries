@@ -1,4 +1,5 @@
 import { createBot, scheduleExpiryDigest } from "./bot.js";
+import { createFakeBrain } from "./brain/fake.js";
 import { createGeminiBrain } from "./brain/gemini.js";
 import { systemClock } from "./clock.js";
 import { loadConfig } from "./config.js";
@@ -8,7 +9,11 @@ import { scheduleNightlySnapshot } from "./snapshot.js";
 
 const config = loadConfig();
 const db = createDb(config.dbPath);
-const brain = createGeminiBrain(config.geminiApiKey);
+if (process.env.FAKE_GEMINI === "1") {
+  console.warn("[FakeBrain] FAKE_GEMINI=1 — using canned Brain responses, not calling Gemini");
+}
+const brain =
+  process.env.FAKE_GEMINI === "1" ? createFakeBrain() : createGeminiBrain(config.geminiApiKey);
 const bot = createBot(config, db, { brain });
 
 startHeartbeat(config.heartbeatPath, config.heartbeatIntervalMs);
