@@ -7,6 +7,7 @@ const validEnv = {
   ALLOWED_USER_IDS: "111,222",
   GROUP_CHAT_ID: "-1001234567890",
   TZ: "Europe/Dublin",
+  WEB_APP_URL: "https://pantry.example.com",
 };
 
 describe("loadConfig", () => {
@@ -26,6 +27,7 @@ describe("loadConfig", () => {
       snapshotPath: "pantry.snapshot.db",
       snapshotCron: "0 3 * * *",
       digestCron: "0 17 * * *",
+      webAppUrl: "https://pantry.example.com",
     });
   });
 
@@ -52,15 +54,19 @@ describe("loadConfig", () => {
     });
   });
 
-  it.each(["TELEGRAM_BOT_TOKEN", "GEMINI_API_KEY", "ALLOWED_USER_IDS", "GROUP_CHAT_ID", "TZ"])(
-    "fails fast when %s is missing",
-    (key) => {
-      const env = { ...validEnv };
-      delete (env as Record<string, string | undefined>)[key];
+  it.each([
+    "TELEGRAM_BOT_TOKEN",
+    "GEMINI_API_KEY",
+    "ALLOWED_USER_IDS",
+    "GROUP_CHAT_ID",
+    "TZ",
+    "WEB_APP_URL",
+  ])("fails fast when %s is missing", (key) => {
+    const env = { ...validEnv };
+    delete (env as Record<string, string | undefined>)[key];
 
-      expect(() => loadConfig(env)).toThrowError(new RegExp(key));
-    },
-  );
+    expect(() => loadConfig(env)).toThrowError(new RegExp(key));
+  });
 
   it("rejects a non-numeric entry in ALLOWED_USER_IDS", () => {
     expect(() => loadConfig({ ...validEnv, ALLOWED_USER_IDS: "111,not-a-number" })).toThrowError(
@@ -70,5 +76,11 @@ describe("loadConfig", () => {
 
   it("rejects a non-numeric GROUP_CHAT_ID", () => {
     expect(() => loadConfig({ ...validEnv, GROUP_CHAT_ID: "nope" })).toThrowError(/GROUP_CHAT_ID/);
+  });
+
+  it("strips a trailing slash from WEB_APP_URL", () => {
+    const config = loadConfig({ ...validEnv, WEB_APP_URL: "https://pantry.example.com/" });
+
+    expect(config.webAppUrl).toBe("https://pantry.example.com");
   });
 });

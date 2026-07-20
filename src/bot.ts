@@ -201,6 +201,13 @@ export function createBot(
   const clock = deps.clock ?? systemClock;
   const downloadPhoto = deps.downloadPhoto ?? createDefaultPhotoDownloader(config.telegramBotToken);
 
+  // Appends a row that opens the Mini App at `path`. The chat menu button
+  // only ever shows in private chats with the bot, never in a group, so
+  // this is the only way to reach a Mini App screen from group messages.
+  function addWebAppRow(keyboard: InlineKeyboard, label: string, path: string): InlineKeyboard {
+    return keyboard.row().webApp(label, webAppUrl(config, path));
+  }
+
   // Photo bytes and the pending extraction live only in process memory, keyed
   // by the bot's own confirm-keyboard message ID: gone on confirm/discard,
   // and a restart drops everything cleanly (re-send the photo).
@@ -263,9 +270,12 @@ export function createBot(
     const lots = fetchInStockLots(db);
     const chunks = renderInventory(lots);
 
-    for (const chunk of chunks) {
-      const keyboard = buildFinishKeyboard(chunk.lotIds);
-      await ctx.reply(chunk.text, keyboard ? { reply_markup: keyboard } : undefined);
+    for (const [index, chunk] of chunks.entries()) {
+      const keyboard = buildFinishKeyboard(chunk.lotIds) ?? new InlineKeyboard();
+      if (index === chunks.length - 1) {
+        addWebAppRow(keyboard, "📋 Open in app", "/");
+      }
+      await ctx.reply(chunk.text, { reply_markup: keyboard });
     }
   });
 
@@ -275,18 +285,24 @@ export function createBot(
       addManualEntry(db, clock, text);
     }
 
-    await ctx.reply(renderList(fetchOpenEntries(db)));
+    await ctx.reply(renderList(fetchOpenEntries(db)), {
+      reply_markup: addWebAppRow(new InlineKeyboard(), "🛒 Open in app", "/shopping"),
+    });
   });
 
   bot.command("staple", async (ctx) => {
     const name = ctx.match.trim();
     if (name.length === 0) {
-      await ctx.reply("Usage: /staple <name>");
+      await ctx.reply("Usage: /staple <name>", {
+        reply_markup: addWebAppRow(new InlineKeyboard(), "📌 Open in app", "/staples"),
+      });
       return;
     }
 
     const result = setStaple(db, name);
-    await ctx.reply(`📌 ${result.productName} is now a staple.`);
+    await ctx.reply(`📌 ${result.productName} is now a staple.`, {
+      reply_markup: addWebAppRow(new InlineKeyboard(), "📌 Open in app", "/staples"),
+    });
   });
 
   bot.command("shopping", async (ctx) => {
@@ -395,13 +411,19 @@ export function createBot(
     const { cookTonight, almostThere } = tierRecipes(classified);
 
     if (cookTonight.length === 0 && almostThere.length === 0) {
-      await ctx.reply("🍽 No recipe ideas right now.");
+      await ctx.reply("🍽 No recipe ideas right now.", {
+        reply_markup: addWebAppRow(new InlineKeyboard(), "🍳 Open in app", "/cook"),
+      });
       return;
     }
 
     if (cookTonight.length > 0) {
       const sent = await ctx.reply(renderCookTonight(cookTonight), {
-        reply_markup: buildCookingThisKeyboard(cookTonight),
+        reply_markup: addWebAppRow(
+          buildCookingThisKeyboard(cookTonight),
+          "🍳 Open in app",
+          "/cook",
+        ),
       });
       pendingCookTonight.set(sent.message_id, {
         recipes: cookTonight,
@@ -478,7 +500,9 @@ export function createBot(
   });
 
   bot.command("prefs", async (ctx) => {
-    const sent = await ctx.reply(renderPrefs(fetchPrefs(db)));
+    const sent = await ctx.reply(renderPrefs(fetchPrefs(db)), {
+      reply_markup: addWebAppRow(new InlineKeyboard(), "📌 Open in app", "/staples"),
+    });
     pendingPrefsMessageId = sent.message_id;
   });
 
@@ -888,6 +912,10 @@ function createDefaultPhotoDownloader(token: string): PhotoDownloader {
     }
     return Buffer.from(await res.arrayBuffer());
   };
+}
+
+function webAppUrl(config: Config, path: string): string {
+  return `${config.webAppUrl}${path}`;
 }
 
 function buildReceiptKeyboard(): InlineKeyboard {

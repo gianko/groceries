@@ -11,6 +11,7 @@ export interface Config {
   snapshotPath: string;
   snapshotCron: string;
   digestCron: string;
+  webAppUrl: string;
 }
 
 const REQUIRED_KEYS = [
@@ -19,6 +20,7 @@ const REQUIRED_KEYS = [
   "ALLOWED_USER_IDS",
   "GROUP_CHAT_ID",
   "TZ",
+  "WEB_APP_URL",
 ] as const;
 
 const DEFAULT_DB_PATH = "pantry.db";
@@ -59,6 +61,7 @@ export function loadConfig(env: EnvSource = process.env): Config {
     snapshotPath: env.SNAPSHOT_PATH ?? DEFAULT_SNAPSHOT_PATH,
     snapshotCron: env.SNAPSHOT_CRON ?? DEFAULT_SNAPSHOT_CRON,
     digestCron: env.DIGEST_CRON ?? DEFAULT_DIGEST_CRON,
+    webAppUrl: env.WEB_APP_URL!.replace(/\/+$/, ""),
   };
 }
 

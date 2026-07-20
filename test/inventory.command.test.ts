@@ -22,6 +22,7 @@ const config: Config = {
   snapshotPath: "pantry.snapshot.db",
   snapshotCron: "0 3 * * *",
   digestCron: "0 17 * * *",
+  webAppUrl: "https://pantry.example.com",
 };
 
 function seedLot(
