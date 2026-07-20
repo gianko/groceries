@@ -10,7 +10,7 @@ const { title } = Astro.props;
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>{title}</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script is:inline src="https://telegram.org/js/telegram-web-app.js"></script>
     <style is:global>
       :root {
         color-scheme: light;

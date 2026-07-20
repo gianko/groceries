@@ -16,15 +16,6 @@ const sections = groupForDisplay(lots);
       var tg = window.Telegram && window.Telegram.WebApp;
       var startParam = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
       var routes = { cook: "/cook", shopping: "/shopping", staples: "/staples" };
-      // TEMP DEBUG — remove after diagnosing the group-chat deep link.
-      var banner = document.createElement("div");
-      banner.style.cssText =
-        "position:fixed;top:0;left:0;right:0;z-index:999;background:#ffeb3b;color:#000;font-size:11px;padding:4px;word-break:break-all;";
-      banner.textContent =
-        "tg=" + !!tg + " startParam=" + JSON.stringify(startParam) + " href=" + location.href;
-      document.addEventListener("DOMContentLoaded", function () {
-        document.body.appendChild(banner);
-      });
       if (startParam && routes[startParam]) {
         location.replace(routes[startParam]);
       }
