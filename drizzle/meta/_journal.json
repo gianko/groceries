@@ -64,6 +64,13 @@
       "when": 1784656412841,
       "tag": "0008_sparkling_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1784675709353,
+      "tag": "0009_drop_pendings",
+      "breakpoints": true
     }
   ]
 }

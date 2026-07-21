@@ -143,11 +143,6 @@ export function renderCookTonight(recipes: CookRecipe[]): string {
   return ["🍳 Cook tonight", ...lines].join("\n");
 }
 
-export function renderFavoritesTonight(favoriteRecipes: CookRecipe[]): string {
-  const lines = favoriteRecipes.map((r) => `• ${r.title}`);
-  return ["⭐ Favorites you can cook tonight", ...lines].join("\n");
-}
-
 function formatQuantity(quantity: number, unit: string | null): string {
   return unit ? `${quantity} ${unit}` : `${quantity}`;
 }

@@ -71,22 +71,6 @@ export const prefs = sqliteTable("prefs", {
   blurb: text("blurb"),
 });
 
-// Pending-keyboard machinery for flows where one message holds exactly one
-// decision (e.g. receipt confirm/edit/discard): keyed by the bot's own reply
-// message ID, no session concept. A row's presence means
-// "undecided"; a decisive callback deletes it atomically, so first-tap-wins
-// and a lost race is a no-op. /inventory's per-line Finish buttons pack many
-// independent decisions into one message, so they don't use this table —
-// each Lot's own in_stock/finished status is the source of truth, and the
-// finish transition is guarded by a conditional UPDATE instead (see
-// src/finish.ts).
-export const pendings = sqliteTable("pendings", {
-  messageId: integer("message_id").primaryKey(),
-  kind: text("kind").notNull(),
-  payload: text("payload", { mode: "json" }).notNull(),
-  createdAt: text("created_at").notNull(),
-});
-
 // One row per "cooking this" tap: the recipe as cooked, plus the 👍/👎
 // verdict from the rating prompt that follows. Rating starts null (asked but
 // not yet answered) and only ever flips once — per ADR-0002, the verdict is
@@ -124,7 +108,6 @@ export const schema = {
   shoppingListEntries,
   rawNameMap,
   prefs,
-  pendings,
   recipes,
   personTokens,
 };
