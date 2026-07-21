@@ -1,6 +1,6 @@
 import { defineAction } from "astro:actions";
 import { z } from "zod";
-import { BrainUnavailableError } from "../../../src/brain.js";
+import { BrainUnavailableError, receiptExtractionSchema } from "../../../src/brain.js";
 import { systemClock } from "../../../src/clock.js";
 import {
   addMissingIngredients,
@@ -22,7 +22,8 @@ import {
 } from "../../../src/finish.js";
 import { addManualEntry } from "../../../src/list.js";
 import { fetchPrefs, savePrefs } from "../../../src/prefs.js";
-import { clearEntry } from "../../../src/reconcile.js";
+import { applyKnownRawNames, confirmReceipt, fetchCatalogNames } from "../../../src/receipt.js";
+import { clearEntry, reconcileShoppingList } from "../../../src/reconcile.js";
 import { addCycleGuessEntry } from "../../../src/shopping.js";
 import { fetchStaples, setStaple, unstaple as unstapleDb } from "../../../src/staple.js";
 import { getBrain, getDb } from "../lib/webDb.js";
@@ -157,6 +158,58 @@ export const server = {
     rate: defineAction({
       input: z.object({ recipeId: z.number().int(), rating: z.enum(["up", "down"]) }),
       handler: ({ recipeId, rating }) => ({ rated: rateRecipe(getDb(), recipeId, rating) }),
+    }),
+  },
+  receipt: {
+    // FormData input (a File, not JSON) per #48 — the client posts the
+    // picked photo straight through, no base64 round-trip. Nothing is
+    // written here: a Brain failure returns `available: false` so a retry
+    // tap costs nothing and never needs the photo re-picked.
+    parse: defineAction({
+      accept: "form",
+      input: z.object({ photo: z.instanceof(File) }),
+      handler: async ({ photo }) => {
+        const db = getDb();
+        const buffer = Buffer.from(await photo.arrayBuffer());
+        try {
+          const extraction = applyKnownRawNames(
+            db,
+            await getBrain().extractReceipt(buffer, fetchCatalogNames(db)),
+          );
+          return { available: true as const, extraction };
+        } catch (err) {
+          if (err instanceof BrainUnavailableError) {
+            console.error("Brain unavailable", err.cause ?? err);
+            return { available: false as const };
+          }
+          throw err;
+        }
+      },
+    }),
+    // Takes the client's (possibly user-edited) extraction wholesale — no
+    // server-side pending-receipt state to reconcile against (per #48).
+    // confirmReceipt only writes after its own Brain call (shelf-life
+    // estimation for unseen names) succeeds, so an `available: false` here
+    // means nothing was persisted and a retry is safe.
+    confirm: defineAction({
+      input: z.object({ extraction: receiptExtractionSchema }),
+      handler: async ({ extraction }) => {
+        const db = getDb();
+        try {
+          const result = await confirmReceipt(db, getBrain(), systemClock, extraction);
+          // Same reconciliation as the old Telegram confirm flow: Product-
+          // matched entries close silently, free-text leftovers come back
+          // for a human keep/clear decision.
+          const reconciled = reconcileShoppingList(db, result.productIds);
+          return { available: true as const, leftoverFreeText: reconciled.leftoverFreeText };
+        } catch (err) {
+          if (err instanceof BrainUnavailableError) {
+            console.error("Brain unavailable", err.cause ?? err);
+            return { available: false as const };
+          }
+          throw err;
+        }
+      },
     }),
   },
   shopping: {

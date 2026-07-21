@@ -16,7 +16,7 @@ const SOURCE_LABEL: Partial<Record<ShoppingListSource, string>> = {
   cycle_guess: "probably low",
 };
 
-function entryLabel(entry: ShoppingListEntry): string {
+export function entryLabel(entry: ShoppingListEntry): string {
   return entry.productName ?? entry.freeText ?? "";
 }
 

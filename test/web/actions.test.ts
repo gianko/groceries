@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BrainUnavailableError } from "../../src/brain.js";
-import { products, shoppingListEntries, stockLots } from "../../src/db/schema.js";
+import { products, rawNameMap, shoppingListEntries, stockLots } from "../../src/db/schema.js";
 import { createDb, type Db } from "../../src/db.js";
 import { BrainFake, fail, ok } from "../support/brainFake.js";
 
@@ -32,6 +32,7 @@ function call(action: any, input: unknown): Promise<any> {
 beforeEach(() => {
   brain.calls.length = 0;
   db.delete(shoppingListEntries).run();
+  db.delete(rawNameMap).run();
   db.delete(stockLots).run();
   db.delete(products).run();
   db.run(`delete from recipes`);
@@ -264,6 +265,126 @@ describe("cook.rate", () => {
     const result = await call(server.cook.rate, { recipeId: 999_999, rating: "down" });
 
     expect(result).toEqual({ rated: false });
+  });
+});
+
+describe("receipt.parse", () => {
+  it("returns the Brain's extraction with known Raw Names applied", async () => {
+    const productId = seedProduct({ name: "Whole Milk" });
+    db.insert(rawNameMap).values({ rawName: "MILK 2L", productId }).run();
+    brain.scriptExtractReceipt(
+      ok({
+        lines: [
+          {
+            rawName: "MILK 2L",
+            name: "milk",
+            category: "food",
+            quantity: 1,
+            unit: null,
+            price: 1.5,
+          },
+        ],
+      }),
+    );
+    const photo = new File([new Uint8Array([1, 2, 3])], "receipt.jpg", { type: "image/jpeg" });
+
+    const formData = new FormData();
+    formData.append("photo", photo);
+    const result = await call(server.receipt.parse, formData);
+
+    expect(result.available).toBe(true);
+    expect(result.extraction.lines).toEqual([
+      {
+        rawName: "MILK 2L",
+        name: "Whole Milk",
+        category: "food",
+        quantity: 1,
+        unit: null,
+        price: 1.5,
+      },
+    ]);
+  });
+
+  it("reports unavailable instead of throwing when the Brain fails", async () => {
+    brain.scriptExtractReceipt(fail(new BrainUnavailableError("down")));
+    const photo = new File([new Uint8Array([1, 2, 3])], "receipt.jpg", { type: "image/jpeg" });
+
+    const formData = new FormData();
+    formData.append("photo", photo);
+    const result = await call(server.receipt.parse, formData);
+
+    expect(result).toEqual({ available: false });
+  });
+});
+
+describe("receipt.confirm", () => {
+  function extractionInput() {
+    return {
+      extraction: {
+        lines: [
+          {
+            rawName: "MILK 2L",
+            name: "Milk",
+            category: "food" as const,
+            quantity: 1,
+            unit: null,
+            price: 1.5,
+          },
+        ],
+      },
+    };
+  }
+
+  it("saves the extraction and reconciles the shopping list", async () => {
+    brain.scriptEstimateShelfLife(ok([{ name: "Milk", days: 7 }]));
+    const productId = seedProduct({ name: "Milk" });
+    db.insert(shoppingListEntries)
+      .values({
+        source: "manual",
+        productId,
+        status: "open",
+        createdAt: "2026-01-01",
+      })
+      .run();
+
+    const result = await call(server.receipt.confirm, extractionInput());
+
+    expect(result.available).toBe(true);
+    expect(result.leftoverFreeText).toEqual([]);
+    const entry = db
+      .select()
+      .from(shoppingListEntries)
+      .all()
+      .find((e) => e.productId === productId);
+    expect(entry?.status).toBe("done");
+  });
+
+  it("surfaces leftover free-text entries for keep/clear", async () => {
+    brain.scriptEstimateShelfLife(ok([{ name: "Milk", days: 7 }]));
+    db.insert(shoppingListEntries)
+      .values({
+        source: "manual",
+        freeText: "Napkins",
+        status: "open",
+        createdAt: "2026-01-01",
+      })
+      .run();
+
+    const result = await call(server.receipt.confirm, extractionInput());
+
+    expect(result.available).toBe(true);
+    expect(result.leftoverFreeText.map((e: { freeText: string | null }) => e.freeText)).toEqual([
+      "Napkins",
+    ]);
+  });
+
+  it("reports unavailable and writes nothing when the Brain's shelf-life call fails", async () => {
+    brain.scriptEstimateShelfLife(fail(new BrainUnavailableError("down")));
+
+    const result = await call(server.receipt.confirm, extractionInput());
+
+    expect(result).toEqual({ available: false });
+    expect(db.select().from(products).all()).toEqual([]);
   });
 });
 
