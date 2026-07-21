@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { createFakeBrain } from "../../../src/brain/fake.js";
 import { createGeminiBrain } from "../../../src/brain/gemini.js";
 import type { Brain } from "../../../src/brain.js";
 import type { Config } from "../../../src/config.js";
@@ -29,6 +30,13 @@ export function getDb(): Db {
 }
 
 export function getBrain(): Brain {
-  brain ??= createGeminiBrain(getConfig().geminiApiKey);
+  if (!brain) {
+    if (process.env.FAKE_GEMINI === "1") {
+      console.warn("[FakeBrain] FAKE_GEMINI=1 — using canned Brain responses, not calling Gemini");
+      brain = createFakeBrain();
+    } else {
+      brain = createGeminiBrain(getConfig().geminiApiKey);
+    }
+  }
   return brain;
 }

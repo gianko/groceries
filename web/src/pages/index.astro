@@ -24,16 +24,6 @@ const justExpired = fetchJustExpiredLots(db, systemClock);
 ---
 
 <Base title="Pantry">
-  <script is:inline>
-    (function () {
-      var tg = window.Telegram && window.Telegram.WebApp;
-      var startParam = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
-      var routes = { cook: "/cook", shopping: "/shopping", staples: "/staples" };
-      if (startParam && routes[startParam]) {
-        location.replace(routes[startParam]);
-      }
-    })();
-  </script>
   {digestQualifies(expiringSoon, justExpired) && (
     <ExpiryDigest client:load expiringSoon={expiringSoon} justExpired={justExpired} />
   )}

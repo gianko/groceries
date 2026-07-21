@@ -17,10 +17,10 @@ export interface FakeBrainOptions {
   scriptedConversation?: ChatTurn[];
 }
 
-// Dev-only stand-in for GeminiBrain, toggled by FAKE_GEMINI=1 (see index.ts).
-// Returns plausible canned data instead of calling the API, so the bot can
-// be exercised end-to-end (Telegram, DB, scheduling) without burning Gemini
-// quota or hitting rate limits during manual testing.
+// Dev-only stand-in for GeminiBrain, toggled by FAKE_GEMINI=1 (see webDb.ts's
+// getBrain()). Returns plausible canned data instead of calling the API, so
+// the web app can be exercised end-to-end without burning Gemini quota or
+// hitting rate limits during manual testing.
 export class FakeBrain implements Brain {
   private readonly scriptedConversation: ChatTurn[];
   private conversationStep = 0;
