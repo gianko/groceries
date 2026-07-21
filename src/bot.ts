@@ -521,7 +521,7 @@ export function createBot(
 
   bot.callbackQuery(FINISH_CALLBACK, async (ctx) => {
     const lotId = Number(ctx.match[1]);
-    const result = finishLot(db, clock, lotId);
+    const result = finishLot(db, clock, lotId, ctx.from?.first_name ?? "Telegram");
 
     await ctx.answerCallbackQuery(result.finished ? "Marked finished" : "Already finished");
     await removeCallbackButtons(ctx, [finishCallbackData(lotId)]);
@@ -547,7 +547,7 @@ export function createBot(
 
   bot.callbackQuery(DIGEST_GONE_CALLBACK, async (ctx) => {
     const lotId = Number(ctx.match[1]);
-    const result = markLotGone(db, clock, lotId);
+    const result = markLotGone(db, clock, lotId, ctx.from?.first_name ?? "Telegram");
 
     await ctx.answerCallbackQuery(result.finished ? "Marked finished" : "Already handled");
     await removeCallbackButtons(ctx, [

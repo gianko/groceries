@@ -105,7 +105,7 @@ export function markVerdictsAsked(db: Db, clock: Clock, lotIds: number[]): void 
 // gone/still-good pair on the same Lot, only the first tap finds a row to
 // delete and proceeds. "Gone" is a Finish-Confirmation, so it carries the
 // same Auto-Relist behavior as any other Finish tap (per the ticket).
-export function markLotGone(db: Db, clock: Clock, lotId: number): FinishResult {
+export function markLotGone(db: Db, clock: Clock, lotId: number, finishedBy: string): FinishResult {
   const deleted = db.delete(expiryVerdicts).where(eq(expiryVerdicts.lotId, lotId)).run();
   if (deleted.changes === 0) {
     return {
@@ -117,7 +117,7 @@ export function markLotGone(db: Db, clock: Clock, lotId: number): FinishResult {
     };
   }
 
-  return finishLot(db, clock, lotId);
+  return finishLot(db, clock, lotId, finishedBy);
 }
 
 // Same delete-first guard as markLotGone. The status guard on the update is

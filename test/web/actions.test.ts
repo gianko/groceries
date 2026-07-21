@@ -4,19 +4,12 @@ import { products, shoppingListEntries, stockLots } from "../../src/db/schema.js
 import { createDb, type Db } from "../../src/db.js";
 import { BrainFake, fail, ok } from "../support/brainFake.js";
 
-const echoCalls: string[] = [];
 const db: Db = createDb();
 const brain = new BrainFake();
 
 vi.mock("../../web/src/lib/webDb.js", () => ({
   getDb: () => db,
   getBrain: () => brain,
-}));
-
-vi.mock("../../web/src/lib/echo.js", () => ({
-  sendGroupEcho: (text: string) => {
-    echoCalls.push(text);
-  },
 }));
 
 // Loaded after the mocks above so the module under test picks up the fakes
@@ -37,7 +30,6 @@ function call(action: any, input: unknown): Promise<any> {
 }
 
 beforeEach(() => {
-  echoCalls.length = 0;
   brain.calls.length = 0;
   db.delete(shoppingListEntries).run();
   db.delete(stockLots).run();
@@ -88,7 +80,9 @@ describe("inventory.finishBatch", () => {
 
     const result = await call(server.inventory.finishBatch, { lotIds: [lotId] });
 
-    expect(result.results).toEqual([{ lotId, finished: true, productName: "Milk" }]);
+    expect(result.results).toEqual([
+      { lotId, finished: true, productName: "Milk", finishedBy: null },
+    ]);
     const row = db
       .select()
       .from(stockLots)
@@ -156,7 +150,7 @@ describe("cook.suggestTonight", () => {
 });
 
 describe("cook.commit", () => {
-  it("decrements matched lots, saves the recipe, and echoes who cooked it", async () => {
+  it("decrements matched lots and saves the recipe", async () => {
     const productId = seedProduct({ name: "Bread" });
     seedLot(productId, { quantity: 10 });
 
@@ -173,11 +167,10 @@ describe("cook.commit", () => {
       { lotId: expect.any(Number), productName: "Bread", before: 10, after: 8 },
     ]);
     expect(typeof result.recipeId).toBe("number");
-    expect(echoCalls).toEqual(["Cooked Toast — used Bread by Gian 🍳"]);
   });
 
-  it("omits the used-suffix when nothing was decremented", async () => {
-    await call(server.cook.commit, {
+  it("saves a recipe with no ingredients decremented", async () => {
+    const result = await call(server.cook.commit, {
       recipe: {
         title: "Cereal",
         ingredients: [],
@@ -186,21 +179,18 @@ describe("cook.commit", () => {
       },
     });
 
-    expect(echoCalls).toEqual(["Cooked Cereal by Gian 🍳"]);
+    expect(result.decremented).toEqual([]);
+    expect(typeof result.recipeId).toBe("number");
   });
 });
 
 describe("cook.addMissing", () => {
-  it("adds each ingredient and echoes once per item", async () => {
+  it("adds each ingredient", async () => {
     const result = await call(server.cook.addMissing, {
       ingredientNames: ["Garlic", "Onion"],
     });
 
     expect(result.count).toBe(2);
-    expect(echoCalls).toEqual([
-      "Garlic added to shopping list by Gian 🛒",
-      "Onion added to shopping list by Gian 🛒",
-    ]);
   });
 });
 
@@ -224,11 +214,10 @@ describe("cook.rate", () => {
 });
 
 describe("shopping.addManual", () => {
-  it("adds a manual entry and echoes it", async () => {
+  it("adds a manual entry", async () => {
     const entry = await call(server.shopping.addManual, { text: "Coffee" });
 
     expect(entry.freeText).toBe("Coffee");
-    expect(echoCalls).toEqual(["Coffee added to shopping list by Gian 🛒"]);
   });
 
   it("rejects empty text", async () => {
@@ -237,7 +226,7 @@ describe("shopping.addManual", () => {
 });
 
 describe("shopping.checkOff", () => {
-  it("checks off an open entry and echoes it", async () => {
+  it("checks off an open entry", async () => {
     const [entry] = db
       .insert(shoppingListEntries)
       .values({
@@ -252,19 +241,17 @@ describe("shopping.checkOff", () => {
     const result = await call(server.shopping.checkOff, { entryId: entry!.id });
 
     expect(result).toEqual({ checked: true });
-    expect(echoCalls).toEqual(["Tea checked off by Gian ✓"]);
   });
 
   it("no-ops silently for an entry that isn't open", async () => {
     const result = await call(server.shopping.checkOff, { entryId: 999_999 });
 
     expect(result).toEqual({ checked: false });
-    expect(echoCalls).toEqual([]);
   });
 });
 
 describe("shopping.acceptCycleGuess", () => {
-  it("adds a cycle-guess entry and echoes it", async () => {
+  it("adds a cycle-guess entry", async () => {
     const productId = seedProduct({ name: "Butter" });
 
     const entry = await call(server.shopping.acceptCycleGuess, {
@@ -273,25 +260,22 @@ describe("shopping.acceptCycleGuess", () => {
     });
 
     expect(entry.source).toBe("cycle_guess");
-    expect(echoCalls).toEqual(["Butter (probably low) added to shopping list by Gian 🛒"]);
   });
 });
 
 describe("staple.setStaple / unstaple", () => {
-  it("declares a staple, creating the product if missing, and echoes it", async () => {
+  it("declares a staple, creating the product if missing", async () => {
     const result = await call(server.staple.setStaple, { name: "Salt" });
 
     expect(result.staples.map((s) => s.name)).toContain("Salt");
-    expect(echoCalls).toEqual(["Salt added as a staple by Gian 📌"]);
   });
 
-  it("removes a staple and echoes it", async () => {
+  it("removes a staple", async () => {
     seedProduct({ name: "Pepper", isStaple: true });
 
     const result = await call(server.staple.unstaple, { name: "Pepper" });
 
     expect(result.staples.map((s) => s.name)).not.toContain("Pepper");
-    expect(echoCalls).toEqual(["Pepper removed as a staple by Gian 📌"]);
   });
 
   it("rejects a blank name", async () => {

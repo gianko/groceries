@@ -40,8 +40,8 @@ describe("finishLot", () => {
     const db = createDb();
     const { lotId } = seedLot(db, { name: "bread" });
 
-    const first = finishLot(db, clock, lotId);
-    const second = finishLot(db, clock, lotId);
+    const first = finishLot(db, clock, lotId, "Gian");
+    const second = finishLot(db, clock, lotId, "Robin");
 
     expect(first.finished).toBe(true);
     expect(second.finished).toBe(false);
@@ -51,7 +51,7 @@ describe("finishLot", () => {
     const db = createDb();
     const { lotId, productId } = seedLot(db, { name: "milk", autoRelist: true });
 
-    const result = finishLot(db, clock, lotId);
+    const result = finishLot(db, clock, lotId, "Gian");
 
     expect(result.autoRelisted).toBe(true);
     expect(result.offerAutoRelist).toBe(false);
@@ -64,7 +64,7 @@ describe("finishLot", () => {
     const db = createDb();
     const { lotId } = seedLot(db, { name: "sponges", autoRelistAsked: true });
 
-    const result = finishLot(db, clock, lotId);
+    const result = finishLot(db, clock, lotId, "Gian");
 
     expect(result.autoRelisted).toBe(false);
     expect(result.offerAutoRelist).toBe(false);
@@ -75,7 +75,7 @@ describe("finishLot", () => {
     const db = createDb();
     const { lotId, productId } = seedLot(db, { name: "eggs" });
 
-    const result = finishLot(db, clock, lotId);
+    const result = finishLot(db, clock, lotId, "Gian");
 
     expect(result.offerAutoRelist).toBe(true);
     expect(result.productId).toBe(productId);
@@ -124,24 +124,26 @@ describe("finishBatch", () => {
     const bread = seedLot(db, { name: "bread" });
     const eggs = seedLot(db, { name: "eggs" });
 
-    const batch = finishBatch(db, clock, [bread.lotId, eggs.lotId]);
+    const batch = finishBatch(db, clock, [bread.lotId, eggs.lotId], "Gian");
 
     expect(batch.results).toEqual(
       expect.arrayContaining([
-        { lotId: bread.lotId, finished: true, productName: "bread" },
-        { lotId: eggs.lotId, finished: true, productName: "eggs" },
+        { lotId: bread.lotId, finished: true, productName: "bread", finishedBy: null },
+        { lotId: eggs.lotId, finished: true, productName: "eggs", finishedBy: null },
       ]),
     );
   });
 
-  it("reports a per-lot failure (with productName) when another process wins the race first", () => {
+  it("reports a per-lot failure naming who else finished it, when another process wins the race first", () => {
     const db = createDb();
     const milk = seedLot(db, { name: "milk" });
-    finishLot(db, clock, milk.lotId); // simulates a concurrent finish elsewhere
+    finishLot(db, clock, milk.lotId, "Robin"); // simulates a concurrent finish elsewhere
 
-    const batch = finishBatch(db, clock, [milk.lotId]);
+    const batch = finishBatch(db, clock, [milk.lotId], "Gian");
 
-    expect(batch.results).toEqual([{ lotId: milk.lotId, finished: false, productName: "milk" }]);
+    expect(batch.results).toEqual([
+      { lotId: milk.lotId, finished: false, productName: "milk", finishedBy: "Robin" },
+    ]);
   });
 
   it("collects the combined Auto-Relist offer only for newly-eligible, successfully finished products", () => {
@@ -150,7 +152,7 @@ describe("finishBatch", () => {
     const sponges = seedLot(db, { name: "sponges", autoRelistAsked: true });
     const milk = seedLot(db, { name: "milk", autoRelist: true });
 
-    const batch = finishBatch(db, clock, [eggs.lotId, sponges.lotId, milk.lotId]);
+    const batch = finishBatch(db, clock, [eggs.lotId, sponges.lotId, milk.lotId], "Gian");
 
     expect(batch.autoRelistOffers).toEqual([{ productId: eggs.productId, productName: "eggs" }]);
   });
@@ -158,9 +160,9 @@ describe("finishBatch", () => {
   it("does not offer Auto-Relist for a lot that failed to finish", () => {
     const db = createDb();
     const eggs = seedLot(db, { name: "eggs" });
-    finishLot(db, clock, eggs.lotId);
+    finishLot(db, clock, eggs.lotId, "Gian");
 
-    const batch = finishBatch(db, clock, [eggs.lotId]);
+    const batch = finishBatch(db, clock, [eggs.lotId], "Robin");
 
     expect(batch.autoRelistOffers).toEqual([]);
   });

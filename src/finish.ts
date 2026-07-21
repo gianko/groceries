@@ -29,11 +29,11 @@ const notFinished: FinishResult = {
 // Finish-Confirmation path (inventory's per-lot buttons, cook's near-empty
 // threshold) routes through here, so Auto-Relist and the re-add offer are
 // handled in exactly one place.
-export function finishLot(db: Db, clock: Clock, lotId: number): FinishResult {
+export function finishLot(db: Db, clock: Clock, lotId: number, finishedBy: string): FinishResult {
   return db.transaction((tx) => {
     const result = tx
       .update(stockLots)
-      .set({ status: "finished" })
+      .set({ status: "finished", finishedBy })
       .where(and(eq(stockLots.id, lotId), eq(stockLots.status, "in_stock")))
       .run();
     if (result.changes === 0) {
@@ -86,7 +86,13 @@ export function decideAutoRelist(db: Db, productId: number, wantsAutoRelist: boo
 }
 
 export interface FinishBatchResult {
-  results: { lotId: number; finished: boolean; productName: string }[];
+  results: {
+    lotId: number;
+    finished: boolean;
+    productName: string;
+    // Who else's tap won the race, on a lost lot — null on success (#46).
+    finishedBy: string | null;
+  }[];
   autoRelistOffers: { productId: number; productName: string }[];
 }
 
@@ -95,31 +101,49 @@ export interface FinishBatchResult {
 // first-tap-wins race against finishLot still resolved independently for
 // each lot, and the combined Auto-Relist offer assembled here rather than
 // pushed onto the client.
-export function finishBatch(db: Db, clock: Clock, lotIds: number[]): FinishBatchResult {
+export function finishBatch(
+  db: Db,
+  clock: Clock,
+  lotIds: number[],
+  finishedBy: string,
+): FinishBatchResult {
   const results: FinishBatchResult["results"] = [];
   const autoRelistOffers: FinishBatchResult["autoRelistOffers"] = [];
 
   for (const lotId of lotIds) {
-    const outcome = finishLot(db, clock, lotId);
-    const productName = outcome.productName ?? lookupProductNameForLot(db, lotId);
-    results.push({ lotId, finished: outcome.finished, productName });
-    if (outcome.finished && outcome.offerAutoRelist && outcome.productId !== null) {
-      autoRelistOffers.push({ productId: outcome.productId, productName });
+    const outcome = finishLot(db, clock, lotId, finishedBy);
+    if (outcome.finished) {
+      results.push({
+        lotId,
+        finished: true,
+        productName: outcome.productName!,
+        finishedBy: null,
+      });
+      if (outcome.offerAutoRelist && outcome.productId !== null) {
+        autoRelistOffers.push({ productId: outcome.productId, productName: outcome.productName! });
+      }
+    } else {
+      const lost = lookupLostRaceInfoForLot(db, lotId);
+      results.push({ lotId, finished: false, ...lost });
     }
   }
 
   return { results, autoRelistOffers };
 }
 
-// finishLot only returns a productName on success (it never looked the
-// product up on the no-op path); a failed batch entry still needs one for
-// the partial-failure notice, so look it up independent of status.
-function lookupProductNameForLot(db: Db, lotId: number): string {
+// finishLot only returns a productName (and never an actor) on success; a
+// lost-race batch entry still needs both for the partial-failure notice
+// (#46 wants it to name who else acted), so look them up independent of
+// what finishLot itself returned.
+function lookupLostRaceInfoForLot(
+  db: Db,
+  lotId: number,
+): { productName: string; finishedBy: string | null } {
   const row = db
-    .select({ productName: products.name })
+    .select({ productName: products.name, finishedBy: stockLots.finishedBy })
     .from(stockLots)
     .innerJoin(products, eq(stockLots.productId, products.id))
     .where(eq(stockLots.id, lotId))
     .get();
-  return row?.productName ?? "unknown item";
+  return { productName: row?.productName ?? "unknown item", finishedBy: row?.finishedBy ?? null };
 }

@@ -31,6 +31,12 @@ export const stockLots = sqliteTable("stock_lots", {
   status: text("status", { enum: ["in_stock", "finished"] })
     .notNull()
     .default("in_stock"),
+  // Display name of whoever finished this Lot (the web app's per-person
+  // identity from #45, or a Telegram first_name while the bot still runs) —
+  // null while in_stock, set atomically alongside the status flip in
+  // finishLot. Lets a lost race name who else acted instead of a vague
+  // "elsewhere" (#46).
+  finishedBy: text("finished_by"),
 });
 
 // Status only flips done on a human-confirmed action (receipt reconciliation,

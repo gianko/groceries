@@ -157,7 +157,7 @@ describe("markLotGone", () => {
     const lot = insertLot(db, cheese.id, { estExpiry: "2026-01-10" });
     markVerdictsAsked(db, clock, [lot.id]);
 
-    const result = markLotGone(db, clock, lot.id);
+    const result = markLotGone(db, clock, lot.id, "Gian");
 
     expect(result.finished).toBe(true);
     expect(db.select().from(stockLots).where(eq(stockLots.id, lot.id)).get()?.status).toBe(
@@ -173,8 +173,8 @@ describe("markLotGone", () => {
     const lot = insertLot(db, cheese.id, { estExpiry: "2026-01-10" });
     markVerdictsAsked(db, clock, [lot.id]);
 
-    markLotGone(db, clock, lot.id);
-    const second = markLotGone(db, clock, lot.id);
+    markLotGone(db, clock, lot.id, "Gian");
+    const second = markLotGone(db, clock, lot.id, "Gian");
 
     expect(second.finished).toBe(false);
   });
@@ -186,7 +186,7 @@ describe("markLotGone", () => {
     const lot = insertLot(db, milk.id, { estExpiry: "2026-01-10" });
     markVerdictsAsked(db, clock, [lot.id]);
 
-    const result = markLotGone(db, clock, lot.id);
+    const result = markLotGone(db, clock, lot.id, "Gian");
 
     expect(result.autoRelisted).toBe(true);
   });

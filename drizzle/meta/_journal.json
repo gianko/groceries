@@ -50,6 +50,13 @@
       "when": 1784651155955,
       "tag": "0006_calm_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1784654112203,
+      "tag": "0007_remarkable_penance",
+      "breakpoints": true
     }
   ]
 }

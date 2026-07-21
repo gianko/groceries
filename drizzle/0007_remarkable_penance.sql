@@ -1,0 +1,1 @@
+ALTER TABLE `stock_lots` ADD `finished_by` text;

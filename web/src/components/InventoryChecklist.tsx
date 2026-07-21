@@ -61,8 +61,10 @@ export default function InventoryChecklist({ food, household }: Props) {
     if (failed.length > 0) {
       const names = failed.map((f: FinishResult) => f.productName).join(", ");
       const verb = failed.length > 1 ? "were" : "was";
+      const actors = new Set(failed.map((f: FinishResult) => f.finishedBy).filter(Boolean));
+      const by = actors.size === 1 ? [...actors][0] : "someone else";
       setNotice(
-        `${finishedIds.size} of ${data.results.length} finished — ${names} ${verb} already finished elsewhere`,
+        `${finishedIds.size} of ${data.results.length} finished — ${names} ${verb} already finished by ${by}`,
       );
     } else {
       setNotice(null);
