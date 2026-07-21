@@ -1,4 +1,5 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { z } from "zod";
 import type { RecipeSuggestion } from "./brain.js";
 import type { Clock } from "./clock.js";
 import { products, recipes, shoppingListEntries, stockLots } from "./db/schema.js";
@@ -61,6 +62,23 @@ export interface CookRecipe {
   // field (or was never re-cooked since) — see fetchFavoriteRecipes.
   instructions: string[] | null;
 }
+
+// The shared wire shape for a CookRecipe: the web Actions layer (cook.commit)
+// and the cook-agent tool loop (commitCook) both need to validate a
+// client/LLM-supplied recipe object into this exact structure.
+export const cookIngredientSchema = z.object({
+  name: z.string(),
+  quantity: z.number(),
+  unit: z.string().nullable(),
+  present: z.boolean(),
+});
+
+export const cookRecipeSchema = z.object({
+  title: z.string(),
+  ingredients: z.array(cookIngredientSchema),
+  missingCount: z.number().int().nonnegative(),
+  instructions: z.array(z.string()).nullable(),
+});
 
 // The Brain is told to reference in-stock ingredients verbatim by Catalog
 // name; this is the backstop. Any ingredient the Brain marked "present" that

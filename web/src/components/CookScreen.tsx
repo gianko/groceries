@@ -3,9 +3,13 @@ import { useEffect, useState } from "preact/hooks";
 import type {
   CookIngredient,
   CookRecipe,
+  CookSuggestions,
   DecrementedLot,
   FinishConfirmationLot,
 } from "../../../src/cook.js";
+import ChatPane from "./ChatPane";
+import FinishChecklist from "./FinishChecklist";
+import RecipeCard from "./RecipeCard";
 
 interface Props {
   favoritesTonight: CookRecipe[];
@@ -17,17 +21,21 @@ type BrainState =
   | { status: "unavailable" }
   | { status: "available"; cookTonight: CookRecipe[]; almostThere: CookRecipe[] };
 
-interface AutoRelistOffer {
-  productId: number;
-  productName: string;
-}
-
 function missingOf(recipe: CookRecipe): CookIngredient[] {
   return recipe.ingredients.filter((i) => !i.present);
 }
 
 function fmtQty(quantity: number, unit: string | null): string {
   return unit ? `${quantity} ${unit}` : `${quantity}`;
+}
+
+// Whatever tiers are already loaded feed the chat pane's suggestRecipes tool
+// per #50 — null while loading or unavailable, so the tool falls back to a
+// fresh Brain call rather than reusing nothing.
+function loadedSuggestionsOf(brain: BrainState): CookSuggestions | null {
+  return brain.status === "available"
+    ? { cookTonight: brain.cookTonight, almostThere: brain.almostThere }
+    : null;
 }
 
 export default function CookScreen({ favoritesTonight, allFavorites }: Props) {
@@ -115,6 +123,8 @@ export default function CookScreen({ favoritesTonight, allFavorites }: Props) {
       )}
 
       {openRecipe && <RecipeModal recipe={openRecipe} onClose={() => setOpenRecipe(null)} />}
+
+      <ChatPane loadedSuggestions={loadedSuggestionsOf(brain)} onOpenRecipe={setOpenRecipe} />
     </div>
   );
 }
@@ -138,26 +148,11 @@ function RecipeList({
 
   return (
     <ul class="recipe-list">
-      {recipes.map((recipe) => {
-        const missing = showMissing ? missingOf(recipe) : [];
-        return (
-          <li key={recipe.title}>
-            <button type="button" class="recipe-row" onClick={() => onOpen(recipe)}>
-              <span class="recipe-icon">{icon}</span>
-              <span class="recipe-main">
-                <span class="recipe-title">
-                  {recipe.title}
-                  {showMissing && <span class="tag missing"> missing {missing.length}</span>}
-                </span>
-                {showMissing && (
-                  <span class="recipe-sub">{missing.map((i) => i.name).join(", ")}</span>
-                )}
-              </span>
-              <span class="recipe-chev">›</span>
-            </button>
-          </li>
-        );
-      })}
+      {recipes.map((recipe) => (
+        <li key={recipe.title}>
+          <RecipeCard recipe={recipe} icon={icon} showMissing={showMissing} onOpen={onOpen} />
+        </li>
+      ))}
     </ul>
   );
 }
@@ -222,10 +217,7 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
   const [addingMissing, setAddingMissing] = useState(false);
   const [missingAdded, setMissingAdded] = useState(false);
   const [result, setResult] = useState<CookResult | null>(null);
-  const [finishConfirmations, setFinishConfirmations] = useState<FinishConfirmationLot[]>([]);
-  const [checked, setChecked] = useState<Set<number>>(new Set());
-  const [confirming, setConfirming] = useState(false);
-  const [offers, setOffers] = useState<AutoRelistOffer[]>([]);
+  const [finishRemaining, setFinishRemaining] = useState<FinishConfirmationLot[]>([]);
   const [rating, setRating] = useState<"up" | "down" | null>(null);
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
 
@@ -242,7 +234,7 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
       return;
     }
     setResult(data);
-    setFinishConfirmations(data.finishConfirmations);
+    setFinishRemaining(data.finishConfirmations);
   }
 
   async function addMissing() {
@@ -259,46 +251,6 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
     }
   }
 
-  function toggleChecked(lotId: number) {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(lotId)) {
-        next.delete(lotId);
-      } else {
-        next.add(lotId);
-      }
-      return next;
-    });
-  }
-
-  async function confirmFinished() {
-    const lotIds = [...checked];
-    if (lotIds.length === 0) {
-      return;
-    }
-    setConfirming(true);
-    const { data, error } = await actions.inventory.finishBatch({ lotIds });
-    setConfirming(false);
-    if (error || !data) {
-      return;
-    }
-    const finishedIds = new Set(data.results.filter((r) => r.finished).map((r) => r.lotId));
-    setFinishConfirmations((prev) => prev.filter((l) => !finishedIds.has(l.lotId)));
-    setChecked(new Set());
-    if (data.autoRelistOffers.length > 0) {
-      setOffers((prev) => {
-        const existingIds = new Set(prev.map((o) => o.productId));
-        const additions = data.autoRelistOffers.filter((o) => !existingIds.has(o.productId));
-        return [...prev, ...additions];
-      });
-    }
-  }
-
-  async function decideOffer(productId: number, wantsAutoRelist: boolean) {
-    await actions.inventory.decideAutoRelist({ productId, wantsAutoRelist });
-    setOffers((prev) => prev.filter((o) => o.productId !== productId));
-  }
-
   async function rate(value: "up" | "down") {
     if (!result || rating || ratingSubmitting) {
       return;
@@ -311,7 +263,7 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
     }
   }
 
-  const allResolved = finishConfirmations.length === 0;
+  const allResolved = finishRemaining.length === 0;
 
   return (
     <div class="modal-overlay">
@@ -399,55 +351,11 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
               </div>
             )}
 
-            {result.decremented.length === 0 && finishConfirmations.length === 0 && (
+            {result.decremented.length === 0 && finishRemaining.length === 0 && (
               <p class="empty-state">Nothing to update — everything used was a Staple.</p>
             )}
 
-            {offers.length > 0 && (
-              <div class="auto-relist-panel">
-                <p class="auto-relist-title">Always re-add these when they run out?</p>
-                {offers.map((offer) => (
-                  <div class="auto-relist-row" key={offer.productId}>
-                    <span>{offer.productName}</span>
-                    <div class="auto-relist-actions">
-                      <button type="button" onClick={() => decideOffer(offer.productId, true)}>
-                        Yes
-                      </button>
-                      <button type="button" onClick={() => decideOffer(offer.productId, false)}>
-                        No
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {finishConfirmations.length > 0 && (
-              <div class="result-block">
-                <h3>Nearly out — confirm finished</h3>
-                {finishConfirmations.map((lot) => (
-                  <button
-                    type="button"
-                    class="fc-row"
-                    key={lot.lotId}
-                    onClick={() => toggleChecked(lot.lotId)}
-                  >
-                    <span class="fc-check">{checked.has(lot.lotId) ? "✓" : ""}</span>
-                    <span>{lot.productName}</span>
-                  </button>
-                ))}
-                <div class="fc-bar">
-                  <span>{checked.size} selected</span>
-                  <button
-                    type="button"
-                    disabled={checked.size === 0 || confirming}
-                    onClick={confirmFinished}
-                  >
-                    {confirming ? "Confirming…" : "Confirm finished"}
-                  </button>
-                </div>
-              </div>
-            )}
+            <FinishChecklist lots={finishRemaining} onChange={setFinishRemaining} />
 
             {allResolved && (
               <div class="rate-block">

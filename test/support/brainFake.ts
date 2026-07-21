@@ -1,5 +1,7 @@
 import type {
   Brain,
+  ChatTool,
+  ChatTurn,
   FreeTextExtraction,
   ReceiptExtraction,
   RecipeContext,
@@ -26,6 +28,7 @@ export class BrainFake implements Brain {
   private estimateShelfLifeQueue: ScriptedResult<ShelfLifeEstimate[]>[] = [];
   private parseFreeTextItemsQueue: ScriptedResult<FreeTextExtraction>[] = [];
   private reviseFreeTextItemsQueue: ScriptedResult<FreeTextExtraction>[] = [];
+  private converseQueue: ScriptedResult<ChatTurn>[] = [];
 
   scriptExtractReceipt(...results: ScriptedResult<ReceiptExtraction>[]): void {
     this.extractReceiptQueue = results;
@@ -49,6 +52,13 @@ export class BrainFake implements Brain {
 
   scriptReviseFreeTextItems(...results: ScriptedResult<FreeTextExtraction>[]): void {
     this.reviseFreeTextItemsQueue = results;
+  }
+
+  // Each entry is one converse() call's return turn, consumed in order — a
+  // test scripts a whole tool-call/model-reply sequence up front, one entry
+  // per round trip through the loop.
+  scriptConverse(...turns: ScriptedResult<ChatTurn>[]): void {
+    this.converseQueue = turns;
   }
 
   async extractReceipt(photo: Buffer, catalogNames: string[]): Promise<ReceiptExtraction> {
@@ -88,6 +98,11 @@ export class BrainFake implements Brain {
   ): Promise<FreeTextExtraction> {
     this.calls.push({ method: "reviseFreeTextItems", args: [current, correction, catalogNames] });
     return consume(this.reviseFreeTextItemsQueue);
+  }
+
+  async converse(history: ChatTurn[], tools: ChatTool[]): Promise<ChatTurn> {
+    this.calls.push({ method: "converse", args: [history, tools] });
+    return consume(this.converseQueue);
   }
 }
 

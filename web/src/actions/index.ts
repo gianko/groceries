@@ -5,6 +5,7 @@ import { systemClock } from "../../../src/clock.js";
 import {
   addMissingIngredients,
   type CookRecipe,
+  cookRecipeSchema,
   decrementForRecipe,
   fetchFavoriteRecipes,
   fetchFoodInventory,
@@ -14,6 +15,12 @@ import {
   saveCookedRecipe,
   tierRecipes,
 } from "../../../src/cook.js";
+import {
+  chatTurnSchema,
+  confirmCook,
+  cookSuggestionsSchema,
+  sendMessage,
+} from "../../../src/cookAgent.js";
 import { markLotStillGood } from "../../../src/digest.js";
 import {
   decideAutoRelist as decideAutoRelistDb,
@@ -27,23 +34,6 @@ import { clearEntry, reconcileShoppingList } from "../../../src/reconcile.js";
 import { addCycleGuessEntry } from "../../../src/shopping.js";
 import { fetchStaples, setStaple, unstaple as unstapleDb } from "../../../src/staple.js";
 import { getBrain, getDb } from "../lib/webDb.js";
-
-const cookIngredientSchema = z.object({
-  name: z.string(),
-  quantity: z.number(),
-  unit: z.string().nullable(),
-  present: z.boolean(),
-});
-
-// The client passes the full recipe object back on cook.commit/rate-adjacent
-// calls per #34 — Brain-sourced suggestions are session-ephemeral with no
-// server-side ID to reference, unlike #27/#30's DB-backed rows.
-const cookRecipeSchema = z.object({
-  title: z.string(),
-  ingredients: z.array(cookIngredientSchema),
-  missingCount: z.number().int().nonnegative(),
-  instructions: z.array(z.string()).nullable(),
-});
 
 // Transport per #27: Astro Actions, not hand-rolled REST routes — typed
 // client calls with Zod input validation for free.
@@ -158,6 +148,39 @@ export const server = {
     rate: defineAction({
       input: z.object({ recipeId: z.number().int(), rating: z.enum(["up", "down"]) }),
       handler: ({ recipeId, rating }) => ({ rated: rateRecipe(getDb(), recipeId, rating) }),
+    }),
+    // Cook-agent chat per #50: the client holds ChatTurn[] history itself
+    // (reset on page load, no server session) and resends the full history
+    // each call. `loadedSuggestions` is whatever Cook-tonight/Almost-there
+    // tiers the screen already loaded on mount, so the suggestRecipes tool
+    // can reuse them instead of a fresh Brain call.
+    chatSend: defineAction({
+      input: z.object({
+        history: z.array(chatTurnSchema),
+        message: z.string().min(1),
+        loadedSuggestions: cookSuggestionsSchema.nullable(),
+      }),
+      handler: ({ history, message, loadedSuggestions }) =>
+        sendMessage(history, message, {
+          db: getDb(),
+          brain: getBrain(),
+          clock: systemClock,
+          loadedSuggestions,
+        }),
+    }),
+    // The only call that's allowed to execute a pending commitCook tool call
+    // — history's last turn must be that toolCall (enforced in
+    // cookAgent.confirmCook), so the Stock-Lot decrement never runs without
+    // this explicit second tap.
+    chatConfirm: defineAction({
+      input: z.object({ history: z.array(chatTurnSchema) }),
+      handler: ({ history }) =>
+        confirmCook(history, {
+          db: getDb(),
+          brain: getBrain(),
+          clock: systemClock,
+          loadedSuggestions: null,
+        }),
     }),
   },
   receipt: {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BrainUnavailableError } from "../../src/brain.js";
+import { BrainUnavailableError, type ChatTurn } from "../../src/brain.js";
 import { products, rawNameMap, shoppingListEntries, stockLots } from "../../src/db/schema.js";
 import { createDb, type Db } from "../../src/db.js";
 import { BrainFake, fail, ok } from "../support/brainFake.js";
@@ -265,6 +265,67 @@ describe("cook.rate", () => {
     const result = await call(server.cook.rate, { recipeId: 999_999, rating: "down" });
 
     expect(result).toEqual({ rated: false });
+  });
+});
+
+describe("cook.chatSend / cook.chatConfirm", () => {
+  it("executes read-only and immediate-write tools without a confirm step", async () => {
+    brain.scriptConverse(
+      ok<ChatTurn>({
+        role: "toolCall",
+        call: { name: "addToShoppingList", args: { ingredientNames: ["Garlic"] } },
+      }),
+      ok<ChatTurn>({ role: "model", text: "Added garlic to the list." }),
+    );
+
+    const result = await call(server.cook.chatSend, {
+      history: [],
+      message: "add garlic please",
+      loadedSuggestions: null,
+    });
+
+    expect(result.reply).toBe("Added garlic to the list.");
+    const entries = db.select().from(shoppingListEntries).all();
+    expect(entries.map((e) => e.freeText)).toContain("Garlic");
+  });
+
+  it("never decrements stock on chatSend — only chatConfirm does, per the Stock-Lot confirm gate", async () => {
+    const productId = seedProduct({ name: "Bread" });
+    const lotId = seedLot(productId, { quantity: 10 });
+    const recipe = {
+      title: "Toast",
+      ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
+      missingCount: 0,
+      instructions: ["Toast it"],
+    };
+    brain.scriptConverse(
+      ok<ChatTurn>({ role: "toolCall", call: { name: "commitCook", args: { recipe } } }),
+    );
+
+    const sendResult = await call(server.cook.chatSend, {
+      history: [],
+      message: "cook the toast",
+      loadedSuggestions: null,
+    });
+
+    expect(sendResult.attachments).toEqual([{ type: "confirmCook", recipe }]);
+    let lot = db
+      .select()
+      .from(stockLots)
+      .all()
+      .find((l) => l.id === lotId);
+    expect(lot?.quantity).toBe(10);
+
+    brain.scriptConverse(ok<ChatTurn>({ role: "model", text: "Enjoy!" }));
+    const confirmResult = await call(server.cook.chatConfirm, { history: sendResult.history });
+
+    expect(confirmResult.reply).toBe("Enjoy!");
+    lot = db
+      .select()
+      .from(stockLots)
+      .all()
+      .find((l) => l.id === lotId);
+    expect(lot?.quantity).toBe(8);
   });
 });
 
