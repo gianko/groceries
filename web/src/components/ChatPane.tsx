@@ -134,7 +134,11 @@ export default function ChatPane({ loadedSuggestions, onOpenRecipe }: Props) {
                     {attachment.type === "recipe" && (
                       <ul class="recipe-list">
                         <li>
-                          <RecipeCard recipe={attachment.recipe} showMissing onOpen={onOpenRecipe} />
+                          <RecipeCard
+                            recipe={attachment.recipe}
+                            showMissing
+                            onOpen={onOpenRecipe}
+                          />
                         </li>
                       </ul>
                     )}
@@ -167,7 +171,10 @@ export default function ChatPane({ loadedSuggestions, onOpenRecipe }: Props) {
               }
               onInput={(e) => setInput((e.target as HTMLInputElement).value)}
             />
-            <button type="submit" disabled={sending || awaitingConfirm || input.trim().length === 0}>
+            <button
+              type="submit"
+              disabled={sending || awaitingConfirm || input.trim().length === 0}
+            >
               Send
             </button>
           </form>
