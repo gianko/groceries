@@ -110,9 +110,7 @@ export default function ReceiptScreen() {
           <h1>Receipt</h1>
         </header>
         <p class="empty-state">Saved — your shopping list is up to date.</p>
-        {status.leftover.length > 0 && (
-          <ReconcilePrompt entries={status.leftover} />
-        )}
+        {status.leftover.length > 0 && <ReconcilePrompt entries={status.leftover} />}
       </div>
     );
   }
@@ -137,7 +135,6 @@ export default function ReceiptScreen() {
 
       <ul class="receipt-line-list">
         {lines.map((line, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: lines have no stable id before confirm
           <li key={i} class="receipt-line-row">
             <input
               type="text"
@@ -160,9 +157,7 @@ export default function ReceiptScreen() {
               class="receipt-line-unit"
               placeholder="unit"
               value={line.unit ?? ""}
-              onInput={(e) =>
-                updateLine(i, { unit: (e.target as HTMLInputElement).value || null })
-              }
+              onInput={(e) => updateLine(i, { unit: (e.target as HTMLInputElement).value || null })}
             />
             <input
               type="number"

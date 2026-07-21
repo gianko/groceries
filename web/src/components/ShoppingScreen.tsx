@@ -124,7 +124,11 @@ export default function ShoppingScreen({ entries, expiringLots, cycleGuesses }: 
                     {lot.unit ? `${lot.quantity} ${lot.unit}` : lot.quantity} · exp {lot.estExpiry}
                   </span>
                 </div>
-                <button type="button" class="pill-btn dismiss" onClick={() => dismissLot(lot.lotId)}>
+                <button
+                  type="button"
+                  class="pill-btn dismiss"
+                  onClick={() => dismissLot(lot.lotId)}
+                >
                   Got it
                 </button>
               </li>
@@ -184,11 +188,7 @@ export default function ShoppingScreen({ entries, expiringLots, cycleGuesses }: 
                   >
                     Skip
                   </button>
-                  <button
-                    type="button"
-                    class="pill-btn accept"
-                    onClick={() => acceptGuess(guess)}
-                  >
+                  <button type="button" class="pill-btn accept" onClick={() => acceptGuess(guess)}>
                     Add
                   </button>
                 </div>

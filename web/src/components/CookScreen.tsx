@@ -1,6 +1,11 @@
 import { actions } from "astro:actions";
 import { useEffect, useState } from "preact/hooks";
-import type { CookIngredient, CookRecipe, DecrementedLot, FinishConfirmationLot } from "../../../src/cook.js";
+import type {
+  CookIngredient,
+  CookRecipe,
+  DecrementedLot,
+  FinishConfirmationLot,
+} from "../../../src/cook.js";
 
 interface Props {
   favoritesTonight: CookRecipe[];
@@ -40,7 +45,11 @@ export default function CookScreen({ favoritesTonight, allFavorites }: Props) {
         setBrain({ status: "unavailable" });
         return;
       }
-      setBrain({ status: "available", cookTonight: data.cookTonight, almostThere: data.almostThere });
+      setBrain({
+        status: "available",
+        cookTonight: data.cookTonight,
+        almostThere: data.almostThere,
+      });
     });
     return () => {
       cancelled = true;
@@ -273,9 +282,7 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
     if (error || !data) {
       return;
     }
-    const finishedIds = new Set(
-      data.results.filter((r) => r.finished).map((r) => r.lotId),
-    );
+    const finishedIds = new Set(data.results.filter((r) => r.finished).map((r) => r.lotId));
     setFinishConfirmations((prev) => prev.filter((l) => !finishedIds.has(l.lotId)));
     setChecked(new Set());
     if (data.autoRelistOffers.length > 0) {
@@ -351,7 +358,6 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
             ) : (
               <ol class="steps-list">
                 {recipe.instructions.map((step, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: steps are a fixed, unreordered list
                   <li key={i}>{step}</li>
                 ))}
               </ol>
@@ -432,7 +438,11 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
                 ))}
                 <div class="fc-bar">
                   <span>{checked.size} selected</span>
-                  <button type="button" disabled={checked.size === 0 || confirming} onClick={confirmFinished}>
+                  <button
+                    type="button"
+                    disabled={checked.size === 0 || confirming}
+                    onClick={confirmFinished}
+                  >
                     {confirming ? "Confirming…" : "Confirm finished"}
                   </button>
                 </div>
@@ -444,10 +454,18 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
                 {rating ? (
                   <>
                     <div class="rate-btns">
-                      <button type="button" class={`rate-btn ${rating === "up" ? "picked" : ""}`} disabled>
+                      <button
+                        type="button"
+                        class={`rate-btn ${rating === "up" ? "picked" : ""}`}
+                        disabled
+                      >
                         👍
                       </button>
-                      <button type="button" class={`rate-btn ${rating === "down" ? "picked" : ""}`} disabled>
+                      <button
+                        type="button"
+                        class={`rate-btn ${rating === "down" ? "picked" : ""}`}
+                        disabled
+                      >
                         👎
                       </button>
                     </div>

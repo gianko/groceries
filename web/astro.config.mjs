@@ -1,5 +1,5 @@
-import preact from "@astrojs/preact";
 import node from "@astrojs/node";
+import preact from "@astrojs/preact";
 import { defineConfig } from "astro/config";
 
 // Server-rendered per #25/#27 (direct DB access, list rendered at request

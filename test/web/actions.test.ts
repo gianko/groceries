@@ -22,9 +22,9 @@ const { server } = await import("../../web/src/actions/index.js");
 
 const context = { locals: { userId: 111, userName: "Gian" } };
 
-// biome-ignore lint/suspicious/noExplicitAny: astro's action-client type
-// doesn't infer cleanly through a shared helper; callers rely on the real
-// runtime shape, not this any.
+// astro's action-client type doesn't infer cleanly through a shared helper;
+// callers rely on the real runtime shape, not this any.
+// biome-ignore lint/suspicious/noExplicitAny: see comment above
 function call(action: any, input: unknown): Promise<any> {
   return action.orThrow.call(context, input);
 }
