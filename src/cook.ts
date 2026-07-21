@@ -1,7 +1,7 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { RecipeSuggestion } from "./brain.js";
 import type { Clock } from "./clock.js";
-import { expiryVerdicts, products, recipes, shoppingListEntries, stockLots } from "./db/schema.js";
+import { products, recipes, shoppingListEntries, stockLots } from "./db/schema.js";
 import type { Db } from "./db.js";
 import { compareExpiry } from "./inventory.js";
 
@@ -14,11 +14,14 @@ export interface CookInventoryItem {
 
 // Food only, in stock, soonest-expiring first — the ordering is what makes
 // "weighted toward soonest-expiring Lots" visible in the Brain input. A Lot
-// with an outstanding gone/still-good verdict is excluded even though it's
-// still in_stock: an ignored Expiry Digest prompt degrades gracefully by
-// falling out of recipe trust rather than blocking on a human tap (per
-// ADR-0002 and the Expiry Digest ticket).
-export function fetchFoodInventory(db: Db): CookInventoryItem[] {
+// that's already past its estimate is excluded even though it's still
+// in_stock: it's showing up in the Expiry Digest's gone/still-good section
+// (computed the same way, see fetchJustExpiredLots), and an unresolved
+// just-expired Lot degrades gracefully by falling out of recipe trust rather
+// than blocking on a human tap (per ADR-0002 and the Expiry Digest ticket).
+export function fetchFoodInventory(db: Db, clock: Clock): CookInventoryItem[] {
+  const today = clock.now().toISOString().slice(0, 10);
+
   const rows = db
     .select({
       name: products.name,
@@ -29,8 +32,12 @@ export function fetchFoodInventory(db: Db): CookInventoryItem[] {
     })
     .from(stockLots)
     .innerJoin(products, eq(stockLots.productId, products.id))
-    .leftJoin(expiryVerdicts, eq(expiryVerdicts.lotId, stockLots.id))
-    .where(and(eq(stockLots.status, "in_stock"), isNull(expiryVerdicts.lotId)))
+    .where(
+      and(
+        eq(stockLots.status, "in_stock"),
+        sql`(${stockLots.estExpiry} is null or ${stockLots.estExpiry} > ${today})`,
+      ),
+    )
     .all();
 
   return rows

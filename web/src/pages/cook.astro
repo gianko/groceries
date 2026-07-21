@@ -1,4 +1,5 @@
 ---
+import { systemClock } from "../../../src/clock.js";
 import {
   fetchCoverableFavorites,
   fetchFavoriteRecipes,
@@ -15,7 +16,7 @@ import { getDb } from "../lib/webDb.js";
 // reads, same cost class as #27/#30). Cook-tonight/Almost-there need a live
 // Brain call, so they're left to the Preact island's post-mount fetch.
 const db = getDb();
-const inventory = fetchFoodInventory(db);
+const inventory = fetchFoodInventory(db, systemClock);
 const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
 const stapleNames = fetchStapleNames(db);
 const favorites = fetchFavoriteRecipes(db);

@@ -57,7 +57,7 @@ function seedProduct(overrides: {
 
 function seedLot(
   productId: number,
-  overrides: { quantity?: number; unit?: string | null } = {},
+  overrides: { quantity?: number; unit?: string | null; estExpiry?: string | null } = {},
 ): number {
   const [lot] = db
     .insert(stockLots)
@@ -66,6 +66,7 @@ function seedLot(
       quantity: overrides.quantity ?? 1,
       unit: overrides.unit ?? null,
       purchasedAt: "2026-01-01",
+      estExpiry: overrides.estExpiry ?? null,
       status: "in_stock",
     })
     .returning()
@@ -114,6 +115,59 @@ describe("inventory.decideAutoRelist", () => {
       .all()
       .find((p) => p.id === productId);
     expect(row?.autoRelist).toBe(true);
+  });
+});
+
+describe("digest.markGone", () => {
+  it("finishes the lot", async () => {
+    const productId = seedProduct({ name: "Yogurt" });
+    const lotId = seedLot(productId, { estExpiry: "2020-01-01" });
+
+    const result = await call(server.digest.markGone, { lotId });
+
+    expect(result.finished).toBe(true);
+    const row = db
+      .select()
+      .from(stockLots)
+      .all()
+      .find((l) => l.id === lotId);
+    expect(row?.status).toBe("finished");
+  });
+
+  it("no-ops for a lot that's already finished", async () => {
+    const productId = seedProduct({ name: "Cheese" });
+    const lotId = seedLot(productId, { estExpiry: "2020-01-01" });
+    await call(server.digest.markGone, { lotId });
+
+    const second = await call(server.digest.markGone, { lotId });
+
+    expect(second.finished).toBe(false);
+  });
+});
+
+describe("digest.markStillGood", () => {
+  it("pushes est_expiry out from today for a just-expired lot", async () => {
+    const productId = seedProduct({ name: "Bread" });
+    const lotId = seedLot(productId, { estExpiry: "2020-01-01" });
+
+    const result = await call(server.digest.markStillGood, { lotId });
+
+    expect(result).toEqual({ applied: true });
+    const row = db
+      .select()
+      .from(stockLots)
+      .all()
+      .find((l) => l.id === lotId);
+    expect(row?.estExpiry).not.toBe("2020-01-01");
+  });
+
+  it("no-ops for a lot that isn't past its estimate", async () => {
+    const productId = seedProduct({ name: "Rice" });
+    const lotId = seedLot(productId, { estExpiry: "2099-01-01" });
+
+    const result = await call(server.digest.markStillGood, { lotId });
+
+    expect(result).toEqual({ applied: false });
   });
 });
 

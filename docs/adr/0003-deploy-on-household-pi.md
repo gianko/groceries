@@ -6,6 +6,11 @@
 > named Cloudflare Tunnel, added to the same docker-compose stack. See #21 for why a public
 > HTTPS URL is unavoidable for a Mini App (Telegram's WebView requires a CA-signed cert) and #22
 > for why it's a new service rather than folded into the bot's own container.
+>
+> **Amended by #47 (2026-07-21):** the Expiry Digest is no longer an in-process scheduled push —
+> it's computed fresh whenever the Mini App is opened. "If the Pi is down at digest time" below no
+> longer applies to the digest specifically (there's no digest-time to be down for), though it
+> still holds for the nightly snapshot cron, the one scheduled job left.
 
 Pantry Bot serves exactly one household — two users, a handful of Telegram messages a day, one daily digest. We decided it runs as a single Docker container on the household Raspberry Pi (OpenMediaVault, existing Docker setup), talking to Telegram via long polling, with SQLite on a Docker volume as the only store and the Expiry Digest fired by an in-process scheduler. The bot only ever makes outbound connections — to the Telegram API and to the OCR/LLM API for receipt parsing — so nothing is exposed from the home network: no webhooks, port forwarding, reverse proxy, TLS, or public URL.
 

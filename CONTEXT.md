@@ -26,7 +26,7 @@ _Avoid_: low status, low flag
 The set of all Products the household knows about — everything ever bought, plus Staples declared directly. A Product can exist with no Stock Lots. New receipt lines are normalized against it so the same thing never forks into two Products.
 
 **Expiry Digest**:
-The daily group message listing Stock Lots expiring within 2 days, plus just-expired lots awaiting a one-time gone / still-good verdict. Sent only when something qualifies.
+The section of the Pantry screen listing Stock Lots expiring within 2 days, plus just-expired lots awaiting a gone / still-good verdict. Computed fresh on every page load (#47) — no scheduled push, no persisted "already asked" state; a just-expired Lot resurfaces on every load until a human resolves it.
 
 **Staple**:
 A Product assumed to always be present (salt, oil, pepper). Recipes never count a Staple as missing.

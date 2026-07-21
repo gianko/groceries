@@ -16,19 +16,14 @@ import {
   saveCookedRecipe,
   tierRecipes,
 } from "../src/cook.js";
-import {
-  expiryVerdicts,
-  products,
-  recipes,
-  shoppingListEntries,
-  stockLots,
-} from "../src/db/schema.js";
+import { products, recipes, shoppingListEntries, stockLots } from "../src/db/schema.js";
 import { createDb, type Db } from "../src/db.js";
 import { FakeClock } from "./support/fakeClock.js";
 
 describe("fetchFoodInventory", () => {
   it("returns only food, in-stock items, soonest-expiring first", () => {
     const db = createDb();
+    const clock = new FakeClock(new Date("2026-07-01T00:00:00Z"));
     const [bread] = db
       .insert(products)
       .values({ name: "bread", category: "food" })
@@ -85,35 +80,31 @@ describe("fetchFoodInventory", () => {
       })
       .run();
 
-    const inventory = fetchFoodInventory(db);
+    const inventory = fetchFoodInventory(db, clock);
 
     expect(inventory.map((i) => i.name)).toEqual(["milk", "bread"]);
     expect(inventory[0]).toEqual({ name: "milk", quantity: 1, unit: "l", estExpiry: "2026-07-18" });
   });
 
-  it("excludes an in-stock Lot with an outstanding expiry verdict", () => {
+  it("excludes an in-stock Lot that's already past its estimate", () => {
     const db = createDb();
+    const clock = new FakeClock(new Date("2026-07-01T00:00:00Z"));
     const [yogurt] = db
       .insert(products)
       .values({ name: "yogurt", category: "food" })
       .returning()
       .all();
-    const [lot] = db
-      .insert(stockLots)
+    db.insert(stockLots)
       .values({
         productId: yogurt!.id,
         quantity: 1,
-        purchasedAt: "2026-07-01",
+        purchasedAt: "2026-06-01",
         estExpiry: "2026-06-30",
         status: "in_stock",
       })
-      .returning()
-      .all();
-    db.insert(expiryVerdicts)
-      .values({ lotId: lot!.id, createdAt: "2026-07-01T00:00:00.000Z" })
       .run();
 
-    expect(fetchFoodInventory(db)).toEqual([]);
+    expect(fetchFoodInventory(db, clock)).toEqual([]);
   });
 });
 

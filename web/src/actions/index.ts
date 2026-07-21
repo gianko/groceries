@@ -14,7 +14,12 @@ import {
   saveCookedRecipe,
   tierRecipes,
 } from "../../../src/cook.js";
-import { decideAutoRelist as decideAutoRelistDb, finishBatch } from "../../../src/finish.js";
+import { markLotStillGood } from "../../../src/digest.js";
+import {
+  decideAutoRelist as decideAutoRelistDb,
+  finishBatch,
+  finishLot,
+} from "../../../src/finish.js";
 import { addManualEntry } from "../../../src/list.js";
 import { fetchPrefs, savePrefs } from "../../../src/prefs.js";
 import { clearEntry } from "../../../src/reconcile.js";
@@ -58,6 +63,21 @@ export const server = {
       }),
     }),
   },
+  digest: {
+    // "Gone" is a Finish-Confirmation, so it carries the same Auto-Relist
+    // behavior as any other Finish tap — same primitive /inventory uses.
+    markGone: defineAction({
+      input: z.object({ lotId: z.number().int() }),
+      handler: ({ lotId }, context) =>
+        finishLot(getDb(), systemClock, lotId, context.locals.userName),
+    }),
+    // Pushes est_expiry a few days out from today; a no-op (applied: false)
+    // if the Lot already stopped being just-expired, e.g. a racing tap.
+    markStillGood: defineAction({
+      input: z.object({ lotId: z.number().int() }),
+      handler: ({ lotId }) => ({ applied: markLotStillGood(getDb(), systemClock, lotId) }),
+    }),
+  },
   cook: {
     // Brain-backed phase-two fetch per #34: the page server-renders
     // Favorites-tonight immediately, and the Preact island calls this on
@@ -68,7 +88,7 @@ export const server = {
       input: z.object({}),
       handler: async () => {
         const db = getDb();
-        const inventory = fetchFoodInventory(db);
+        const inventory = fetchFoodInventory(db, systemClock);
         const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
         const stapleNames = fetchStapleNames(db);
         const favorites = fetchFavoriteRecipes(db);

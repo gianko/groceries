@@ -2,6 +2,8 @@ import { actions } from "astro:actions";
 import { useState } from "preact/hooks";
 import type { FinishBatchResult } from "../../../src/finish.js";
 import type { InventoryLot } from "../../../src/inventory.js";
+import { useAutoRelistOffers } from "../lib/autoRelistOffers";
+import AutoRelistPanel from "./AutoRelistPanel";
 
 type FinishResult = FinishBatchResult["results"][number];
 
@@ -10,17 +12,12 @@ interface Props {
   household: InventoryLot[];
 }
 
-interface AutoRelistOffer {
-  productId: number;
-  productName: string;
-}
-
 export default function InventoryChecklist({ food, household }: Props) {
   const [items, setItems] = useState({ food, household });
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [offers, setOffers] = useState<AutoRelistOffer[]>([]);
+  const { offers, addOffers, decideOffer } = useAutoRelistOffers();
 
   function toggle(lotId: number) {
     setSelected((prev) => {
@@ -70,26 +67,7 @@ export default function InventoryChecklist({ food, household }: Props) {
       setNotice(null);
     }
 
-    if (data.autoRelistOffers.length > 0) {
-      // Merge rather than replace: a still-unanswered offer from an earlier
-      // confirm shouldn't vanish just because a later confirm batch also
-      // turned up offers.
-      setOffers((prev) => {
-        const existingIds = new Set(prev.map((o) => o.productId));
-        const additions = data.autoRelistOffers.filter(
-          (o: AutoRelistOffer) => !existingIds.has(o.productId),
-        );
-        return [...prev, ...additions];
-      });
-    }
-  }
-
-  async function decideOffer(productId: number, wantsAutoRelist: boolean) {
-    // Whichever way it resolves server-side (including a lost race — the
-    // offer was already answered elsewhere), the row just closes silently;
-    // there's nothing confusing left to explain, per #27.
-    await actions.inventory.decideAutoRelist({ productId, wantsAutoRelist });
-    setOffers((prev) => prev.filter((o) => o.productId !== productId));
+    addOffers(data.autoRelistOffers);
   }
 
   return (
@@ -100,24 +78,7 @@ export default function InventoryChecklist({ food, household }: Props) {
 
       {notice && <div class="notice">{notice}</div>}
 
-      {offers.length > 0 && (
-        <div class="auto-relist-panel">
-          <p class="auto-relist-title">Always re-add these when they run out?</p>
-          {offers.map((offer) => (
-            <div class="auto-relist-row" key={offer.productId}>
-              <span>{offer.productName}</span>
-              <div class="auto-relist-actions">
-                <button type="button" onClick={() => decideOffer(offer.productId, true)}>
-                  Yes
-                </button>
-                <button type="button" onClick={() => decideOffer(offer.productId, false)}>
-                  No
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <AutoRelistPanel offers={offers} onDecide={decideOffer} />
 
       {items.food.length > 0 && (
         <Section title="🍎 FOOD" lots={items.food} selected={selected} onToggle={toggle} />

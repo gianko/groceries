@@ -1,0 +1,1 @@
+DROP TABLE `expiry_verdicts`;

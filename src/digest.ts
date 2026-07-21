@@ -1,8 +1,7 @@
-import { and, eq, isNull, type SQL, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { Clock } from "./clock.js";
-import { expiryVerdicts, products, stockLots } from "./db/schema.js";
+import { products, stockLots } from "./db/schema.js";
 import type { Db } from "./db.js";
-import { type FinishResult, finishLot } from "./finish.js";
 import { EXPIRING_WINDOW_DAYS } from "./shopping.js";
 
 // "A few days" per the ticket — pushed from today, not from the old
@@ -35,10 +34,10 @@ export function fetchExpiringSoonLots(db: Db, clock: Clock): DigestLot[] {
   );
 }
 
-// In-stock Lots that have already reached their estimate and don't already
-// have an outstanding gone/still-good verdict — once asked, a Lot drops out
-// of this query for good (whether answered or ignored), so the one-time
-// promise holds regardless of how many digests fire afterward.
+// In-stock Lots that have already reached their estimate — computed fresh on
+// every call, so a Lot resurfaces here on every page load until a human taps
+// Gone or Still-good (which finishes it or pushes its estimate out, either
+// way dropping it out of this query).
 export function fetchJustExpiredLots(db: Db, clock: Clock): DigestLot[] {
   const today = formatDate(clock.now());
 
@@ -48,7 +47,6 @@ export function fetchJustExpiredLots(db: Db, clock: Clock): DigestLot[] {
       eq(stockLots.status, "in_stock"),
       sql`${stockLots.estExpiry} is not null`,
       sql`${stockLots.estExpiry} <= ${today}`,
-      isNull(expiryVerdicts.lotId),
     ),
   );
 }
@@ -64,7 +62,6 @@ function queryLots(db: Db, where: SQL | undefined): DigestLot[] {
     })
     .from(stockLots)
     .innerJoin(products, eq(stockLots.productId, products.id))
-    .leftJoin(expiryVerdicts, eq(expiryVerdicts.lotId, stockLots.id))
     .where(where)
     .all();
 
@@ -80,84 +77,27 @@ export function digestQualifies(expiringSoon: DigestLot[], justExpired: DigestLo
   return expiringSoon.length > 0 || justExpired.length > 0;
 }
 
-// The one write the digest cron itself is allowed to make: recording that a
-// verdict was asked. ADR-0002 forbids a cron from mutating a Stock Lot's
-// status or est_expiry — the two columns a human tap is the sole author of —
-// and this table is neither: it never appears on stockLots, only records
-// "already asked", and ticket #16's own acceptance criterion is scoped to
-// "zero unconfirmed state mutations", i.e. no write that asserts something
-// about a Lot's condition without a human tap behind it. Recording that a
-// question was asked asserts nothing.
-export function markVerdictsAsked(db: Db, clock: Clock, lotIds: number[]): void {
-  if (lotIds.length === 0) {
-    return;
-  }
-
-  const createdAt = clock.now().toISOString();
-  db.transaction((tx) => {
-    for (const lotId of lotIds) {
-      tx.insert(expiryVerdicts).values({ lotId, createdAt }).run();
-    }
-  });
-}
-
-// Guarded by deleting the outstanding verdict row first: of a racing
-// gone/still-good pair on the same Lot, only the first tap finds a row to
-// delete and proceeds. "Gone" is a Finish-Confirmation, so it carries the
-// same Auto-Relist behavior as any other Finish tap (per the ticket).
-export function markLotGone(db: Db, clock: Clock, lotId: number, finishedBy: string): FinishResult {
-  const deleted = db.delete(expiryVerdicts).where(eq(expiryVerdicts.lotId, lotId)).run();
-  if (deleted.changes === 0) {
-    return {
-      finished: false,
-      productId: null,
-      productName: null,
-      autoRelisted: false,
-      offerAutoRelist: false,
-    };
-  }
-
-  return finishLot(db, clock, lotId, finishedBy);
-}
-
-// Same delete-first guard as markLotGone. The status guard on the update is
-// belt-and-suspenders: nothing else should touch a Lot with an outstanding
-// verdict, but a Lot finished through another path (e.g. /inventory) while
-// its verdict sat unanswered must not have its expiry silently rewritten.
+// Guarded on the Lot still being just-expired (same predicate as
+// fetchJustExpiredLots) as well as in_stock: of a racing pair of taps on the
+// same Lot, only the first finds a matching row and proceeds — the second
+// finds est_expiry already pushed past today and no-ops. "Gone" isn't
+// guarded here; it's a Finish-Confirmation, so it routes through
+// finishLot's own in_stock guard instead (see src/finish.ts).
 export function markLotStillGood(db: Db, clock: Clock, lotId: number): boolean {
-  const deleted = db.delete(expiryVerdicts).where(eq(expiryVerdicts.lotId, lotId)).run();
-  if (deleted.changes === 0) {
-    return false;
-  }
-
-  const newExpiry = addDays(formatDate(clock.now()), STILL_GOOD_EXTENSION_DAYS);
+  const today = formatDate(clock.now());
+  const newExpiry = addDays(today, STILL_GOOD_EXTENSION_DAYS);
   const result = db
     .update(stockLots)
     .set({ estExpiry: newExpiry })
-    .where(and(eq(stockLots.id, lotId), eq(stockLots.status, "in_stock")))
+    .where(
+      and(
+        eq(stockLots.id, lotId),
+        eq(stockLots.status, "in_stock"),
+        sql`${stockLots.estExpiry} <= ${today}`,
+      ),
+    )
     .run();
   return result.changes > 0;
-}
-
-function lotLine(lot: DigestLot): string {
-  const qty = lot.unit ? `${lot.quantity} ${lot.unit}` : `${lot.quantity}`;
-  return `• ${lot.productName} — ${qty} (exp ${lot.estExpiry})`;
-}
-
-export function renderExpiryDigest(expiringSoon: DigestLot[], justExpired: DigestLot[]): string {
-  const sections: string[] = [];
-
-  if (expiringSoon.length > 0) {
-    sections.push(["⏰ Expiring soon", ...expiringSoon.map(lotLine)].join("\n"));
-  }
-
-  if (justExpired.length > 0) {
-    sections.push(
-      ["🗑👌 Just expired — gone or still good?", ...justExpired.map(lotLine)].join("\n"),
-    );
-  }
-
-  return sections.join("\n\n");
 }
 
 function formatDate(date: Date): string {

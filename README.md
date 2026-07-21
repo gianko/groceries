@@ -86,14 +86,13 @@ pnpm dev                # tsx watch, runs against a local SQLite file
 | `GEMINI_API_KEY` | yes | — | |
 | `ALLOWED_USER_IDS` | yes | — | comma-separated Telegram user IDs of the two household members |
 | `GROUP_CHAT_ID` | yes | — | the household Telegram group |
-| `TZ` | yes | — | e.g. `Europe/Dublin`; governs digest/snapshot cron timing |
+| `TZ` | yes | — | e.g. `Europe/Dublin`; governs snapshot cron timing |
 | `DB_PATH` | no | `pantry.db` | |
 | `HEARTBEAT_PATH` | no | `heartbeat` | |
 | `HEARTBEAT_INTERVAL_MS` | no | `30000` | |
 | `HEARTBEAT_STALE_MS` | no | `90000` | healthcheck fails if the heartbeat file is older than this |
 | `SNAPSHOT_PATH` | no | `pantry.snapshot.db` | |
 | `SNAPSHOT_CRON` | no | `0 3 * * *` | |
-| `DIGEST_CRON` | no | `0 17 * * *` | |
 
 ### Scripts
 

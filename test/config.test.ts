@@ -26,7 +26,6 @@ describe("loadConfig", () => {
       heartbeatStaleMs: 90_000,
       snapshotPath: "pantry.snapshot.db",
       snapshotCron: "0 3 * * *",
-      digestCron: "0 17 * * *",
       webAppUrl: "https://pantry.example.com",
     });
   });
@@ -40,7 +39,6 @@ describe("loadConfig", () => {
       HEARTBEAT_STALE_MS: "45000",
       SNAPSHOT_PATH: "/data/pantry.snapshot.db",
       SNAPSHOT_CRON: "30 2 * * *",
-      DIGEST_CRON: "0 18 * * *",
     });
 
     expect(config).toMatchObject({
@@ -50,7 +48,6 @@ describe("loadConfig", () => {
       heartbeatStaleMs: 45_000,
       snapshotPath: "/data/pantry.snapshot.db",
       snapshotCron: "30 2 * * *",
-      digestCron: "0 18 * * *",
     });
   });
 

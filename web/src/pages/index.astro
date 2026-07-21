@@ -1,13 +1,22 @@
 ---
+import { systemClock } from "../../../src/clock.js";
+import { digestQualifies, fetchExpiringSoonLots, fetchJustExpiredLots } from "../../../src/digest.js";
 import { fetchInStockLots, groupForDisplay } from "../../../src/inventory.js";
+import ExpiryDigest from "../components/ExpiryDigest";
 import InventoryChecklist from "../components/InventoryChecklist";
 import Base from "../layouts/Base.astro";
 import { getDb } from "../lib/webDb.js";
 
 // Server-rendered at request time per #27 — no fetch-on-mount, no client
 // loading state for the initial list.
-const lots = fetchInStockLots(getDb());
+const db = getDb();
+const lots = fetchInStockLots(db);
 const sections = groupForDisplay(lots);
+
+// Computed fresh on every load per #47 — no more cron push, no persisted
+// "already asked" bookkeeping.
+const expiringSoon = fetchExpiringSoonLots(db, systemClock);
+const justExpired = fetchJustExpiredLots(db, systemClock);
 ---
 
 <Base title="Pantry">
@@ -21,5 +30,8 @@ const sections = groupForDisplay(lots);
       }
     })();
   </script>
+  {digestQualifies(expiringSoon, justExpired) && (
+    <ExpiryDigest client:load expiringSoon={expiringSoon} justExpired={justExpired} />
+  )}
   <InventoryChecklist client:load food={sections.food} household={sections.household} />
 </Base>
