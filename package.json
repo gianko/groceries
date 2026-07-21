@@ -16,6 +16,7 @@
     "web:build": "cd web && astro build",
     "web:start": "node web/dist/server/entry.mjs",
     "web:check": "cd web && astro check",
+    "mint-token": "tsx src/scripts/mint-token.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",

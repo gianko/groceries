@@ -115,6 +115,17 @@ export const expiryVerdicts = sqliteTable("expiry_verdicts", {
   createdAt: text("created_at").notNull(),
 });
 
+// One row per household member (#45): a distinct bootstrap token and the
+// label the CLI mint script was given. Rotation re-runs the mint script for
+// the same name, which replaces the token in place rather than adding a row
+// — so a name always has at most one live token.
+export const personTokens = sqliteTable("person_tokens", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  token: text("token").notNull().unique(),
+  createdAt: text("created_at").notNull(),
+});
+
 export const schema = {
   products,
   stockLots,
@@ -124,4 +135,5 @@ export const schema = {
   pendings,
   recipes,
   expiryVerdicts,
+  personTokens,
 };

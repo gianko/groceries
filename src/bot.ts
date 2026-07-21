@@ -216,7 +216,7 @@ export function createBot(
   // (BUTTON_TYPE_INVALID) — so a plain URL button pointing at a `t.me`
   // deep link is the only way to reach a Mini App screen from group
   // messages. The Mini App itself resolves `startapp` back to `path`
-  // client-side (see web/src/lib/bootstrapHtml.ts and index.astro).
+  // client-side (see web/src/pages/index.astro).
   function addWebAppRow(keyboard: InlineKeyboard, label: string, path: string): InlineKeyboard {
     return keyboard.row().url(label, webAppDeepLink(bot.botInfo.username, path));
   }

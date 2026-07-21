@@ -1,0 +1,8 @@
+{
+  "name": "Pantry Bot",
+  "short_name": "Pantry",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f4f2",
+  "theme_color": "#f4f4f2"
+}
