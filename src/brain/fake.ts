@@ -1,17 +1,34 @@
-import type {
-  Brain,
-  FreeTextExtraction,
-  ReceiptExtraction,
-  RecipeContext,
-  RecipeSuggestion,
-  ShelfLifeEstimate,
+import {
+  type Brain,
+  BrainUnavailableError,
+  type ChatTool,
+  type ChatTurn,
+  type FreeTextExtraction,
+  type ReceiptExtraction,
+  type RecipeContext,
+  type RecipeSuggestion,
+  type ShelfLifeEstimate,
 } from "../brain.js";
+
+export interface FakeBrainOptions {
+  // Scripted turns returned one-per-call from converse(), in order. Lets
+  // tests drive a multi-turn tool-calling loop deterministically without a
+  // real LLM: e.g. [{ role: "toolCall", call: {...} }, { role: "model", text: "..." }].
+  scriptedConversation?: ChatTurn[];
+}
 
 // Dev-only stand-in for GeminiBrain, toggled by FAKE_GEMINI=1 (see index.ts).
 // Returns plausible canned data instead of calling the API, so the bot can
 // be exercised end-to-end (Telegram, DB, scheduling) without burning Gemini
 // quota or hitting rate limits during manual testing.
 export class FakeBrain implements Brain {
+  private readonly scriptedConversation: ChatTurn[];
+  private conversationStep = 0;
+
+  constructor(options: FakeBrainOptions = {}) {
+    this.scriptedConversation = options.scriptedConversation ?? [];
+  }
+
   async extractReceipt(_photo: Buffer, catalogNames: string[]): Promise<ReceiptExtraction> {
     console.log("[FakeBrain] extractReceipt (canned response, no API call)");
     return {
@@ -90,8 +107,22 @@ export class FakeBrain implements Brain {
     );
     return current;
   }
+
+  async converse(_history: ChatTurn[], _tools: ChatTool[]): Promise<ChatTurn> {
+    const turn = this.scriptedConversation[this.conversationStep];
+    if (!turn) {
+      throw new BrainUnavailableError(
+        `[FakeBrain] converse: scripted conversation exhausted at step ${this.conversationStep}`,
+      );
+    }
+    console.log(
+      `[FakeBrain] converse (scripted step ${this.conversationStep}, no API call): ${turn.role}`,
+    );
+    this.conversationStep++;
+    return turn;
+  }
 }
 
-export function createFakeBrain(): FakeBrain {
-  return new FakeBrain();
+export function createFakeBrain(options?: FakeBrainOptions): FakeBrain {
+  return new FakeBrain(options);
 }

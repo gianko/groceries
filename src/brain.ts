@@ -1,9 +1,13 @@
 import { z } from "zod";
 
-// The one seam to the LLM. Every implementation must honour the same
-// contract: strict JSON-only prompts, Zod-validated output, one retry on
-// parse failure, exponential backoff on 429/5xx, then throw
-// BrainUnavailableError so callers can surface a graceful chat message.
+// The one seam to the LLM. The single-shot methods below share one contract:
+// strict JSON-only prompts, Zod-validated output, one retry on parse
+// failure, exponential backoff on 429/5xx, then throw BrainUnavailableError
+// so callers can surface a graceful chat message. converse() is exempt from
+// the JSON/Zod/parse-retry part of that contract (there's no structured
+// schema to validate — a tool call's args are whatever the LLM's function-
+// calling API hands back), but still backs off on 429/5xx and still throws
+// BrainUnavailableError once it gives up.
 export interface Brain {
   extractReceipt(photo: Buffer, catalogNames: string[]): Promise<ReceiptExtraction>;
   reviseReceipt(
@@ -20,7 +24,32 @@ export interface Brain {
     correction: string,
     catalogNames: string[],
   ): Promise<FreeTextExtraction>;
+  // Multi-turn tool-calling loop, distinct from the single-shot structured
+  // methods above. Each call advances the conversation by exactly one turn:
+  // the caller passes the full turn history plus the tools on offer, and
+  // gets back either the model's final text reply or a single tool call.
+  // The caller — not this method — executes the tool, decides confirmation
+  // semantics, appends a toolResult turn, and calls converse again to
+  // continue the loop.
+  converse(history: ChatTurn[], tools: ChatTool[]): Promise<ChatTurn>;
 }
+
+export interface ChatTool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>; // JSON Schema, passed through to the LLM
+}
+
+export interface ToolCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+
+export type ChatTurn =
+  | { role: "user"; text: string }
+  | { role: "model"; text: string }
+  | { role: "toolCall"; call: ToolCall }
+  | { role: "toolResult"; name: string; result: unknown };
 
 export const receiptLineSchema = z.object({
   rawName: z.string(),

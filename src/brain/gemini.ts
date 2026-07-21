@@ -3,6 +3,8 @@ import type { ZodType } from "zod";
 import {
   type Brain,
   BrainUnavailableError,
+  type ChatTool,
+  type ChatTurn,
   type FreeTextExtraction,
   freeTextExtractionSchema,
   type ReceiptExtraction,
@@ -19,14 +21,30 @@ const DEFAULT_MODEL = "gemini-3.5-flash";
 // backoff on 429/5xx for each individual call (handled here).
 const BACKOFF_DELAYS_MS = [500, 1500];
 
-type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
+type Part =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
+  | { functionCall: { name: string; args: Record<string, unknown> } }
+  | { functionResponse: { name: string; response: Record<string, unknown> } };
+
+interface FunctionDeclaration {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
 
 export interface GeminiModelsClient {
   generateContent(params: {
     model: string;
     contents: { role: string; parts: Part[] }[];
-    config?: { responseMimeType?: string };
-  }): Promise<{ text?: string }>;
+    config?: {
+      responseMimeType?: string;
+      tools?: { functionDeclarations: FunctionDeclaration[] }[];
+    };
+  }): Promise<{
+    text?: string;
+    functionCalls?: { name?: string; args?: Record<string, unknown> }[];
+  }>;
 }
 
 export interface GeminiBrainOptions {
@@ -91,6 +109,41 @@ export class GeminiBrain implements Brain {
     return this.generateJson(parts, freeTextExtractionSchema);
   }
 
+  async converse(history: ChatTurn[], tools: ChatTool[]): Promise<ChatTurn> {
+    const contents = history.map(toGeminiContent);
+    const functionDeclarations = tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    }));
+
+    const response = await withBackoff(
+      () =>
+        this.models.generateContent({
+          model: this.model,
+          contents,
+          config: { tools: [{ functionDeclarations }] },
+        }),
+      this.sleep,
+    ).catch((err: unknown) => {
+      throw new BrainUnavailableError("Brain response unavailable", { cause: err });
+    });
+
+    const call = response.functionCalls?.[0];
+    if (call?.name) {
+      if (response.functionCalls && response.functionCalls.length > 1) {
+        console.warn(
+          `[GeminiBrain] converse: Gemini returned ${response.functionCalls.length} function calls in one turn, using only the first ("${call.name}")`,
+        );
+      }
+      return { role: "toolCall", call: { name: call.name, args: call.args ?? {} } };
+    }
+    if (!response.text) {
+      throw new BrainUnavailableError("Brain response unavailable: empty reply");
+    }
+    return { role: "model", text: response.text };
+  }
+
   private async generateOnce(parts: Part[]): Promise<string> {
     return withBackoff(async () => {
       const response = await this.models.generateContent({
@@ -132,6 +185,25 @@ export class GeminiBrain implements Brain {
 export function createGeminiBrain(apiKey: string): GeminiBrain {
   const ai = new GoogleGenAI({ apiKey });
   return new GeminiBrain(ai.models);
+}
+
+function toGeminiContent(turn: ChatTurn): { role: string; parts: Part[] } {
+  switch (turn.role) {
+    case "user":
+      return { role: "user", parts: [{ text: turn.text }] };
+    case "model":
+      return { role: "model", parts: [{ text: turn.text }] };
+    case "toolCall":
+      return {
+        role: "model",
+        parts: [{ functionCall: { name: turn.call.name, args: turn.call.args } }],
+      };
+    case "toolResult":
+      return {
+        role: "user",
+        parts: [{ functionResponse: { name: turn.name, response: { result: turn.result } } }],
+      };
+  }
 }
 
 function imagePart(photo: Buffer): Part {

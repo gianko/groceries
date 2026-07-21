@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { GeminiBrain, type GeminiModelsClient } from "../src/brain/gemini.js";
-import { BrainUnavailableError, type ReceiptExtraction } from "../src/brain.js";
+import { BrainUnavailableError, type ChatTool, type ReceiptExtraction } from "../src/brain.js";
 
 function jsonResponse(body: unknown): { text: string } {
   return { text: JSON.stringify(body) };
@@ -165,5 +165,122 @@ describe("GeminiBrain", () => {
     expect(promptText).toContain("it's chopped tomatoes");
     expect(promptText).toContain("baked beans");
     expect(promptText).toContain("milk");
+  });
+
+  describe("converse", () => {
+    const tools: ChatTool[] = [
+      { name: "checkInventory", description: "Check pantry inventory", parameters: {} },
+    ];
+
+    it("returns a toolCall turn when Gemini responds with a function call", async () => {
+      const generateContent = vi.fn().mockResolvedValue({
+        functionCalls: [{ name: "checkInventory", args: { category: "food" } }],
+      });
+      const brain = createBrain({ generateContent });
+
+      const turn = await brain.converse([{ role: "user", text: "what's in the pantry?" }], tools);
+
+      expect(turn).toEqual({
+        role: "toolCall",
+        call: { name: "checkInventory", args: { category: "food" } },
+      });
+    });
+
+    it("uses only the first function call and warns when Gemini returns more than one", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const generateContent = vi.fn().mockResolvedValue({
+        functionCalls: [
+          { name: "checkInventory", args: { category: "food" } },
+          { name: "fetchFavorites", args: {} },
+        ],
+      });
+      const brain = createBrain({ generateContent });
+
+      const turn = await brain.converse([{ role: "user", text: "what's in the pantry?" }], tools);
+
+      expect(turn).toEqual({
+        role: "toolCall",
+        call: { name: "checkInventory", args: { category: "food" } },
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      warnSpy.mockRestore();
+    });
+
+    it("defaults missing function call args to an empty object", async () => {
+      const generateContent = vi.fn().mockResolvedValue({
+        functionCalls: [{ name: "checkInventory" }],
+      });
+      const brain = createBrain({ generateContent });
+
+      const turn = await brain.converse([{ role: "user", text: "check" }], tools);
+
+      expect(turn).toEqual({ role: "toolCall", call: { name: "checkInventory", args: {} } });
+    });
+
+    it("returns a model text turn when Gemini responds with plain text", async () => {
+      const generateContent = vi.fn().mockResolvedValue({ text: "You have plenty of pasta." });
+      const brain = createBrain({ generateContent });
+
+      const turn = await brain.converse([{ role: "user", text: "what's in the pantry?" }], tools);
+
+      expect(turn).toEqual({ role: "model", text: "You have plenty of pasta." });
+    });
+
+    it("passes the tool declarations and turn history through to Gemini", async () => {
+      const generateContent = vi.fn().mockResolvedValue({ text: "ok" });
+      const brain = createBrain({ generateContent });
+
+      await brain.converse(
+        [
+          { role: "user", text: "add milk" },
+          { role: "toolCall", call: { name: "addToShoppingList", args: { name: "milk" } } },
+          { role: "toolResult", name: "addToShoppingList", result: { added: true } },
+        ],
+        tools,
+      );
+
+      const params = generateContent.mock.calls[0]![0];
+      expect(params.config.tools).toEqual([{ functionDeclarations: tools }]);
+      expect(params.contents).toEqual([
+        { role: "user", parts: [{ text: "add milk" }] },
+        {
+          role: "model",
+          parts: [{ functionCall: { name: "addToShoppingList", args: { name: "milk" } } }],
+        },
+        {
+          role: "user",
+          parts: [
+            {
+              functionResponse: {
+                name: "addToShoppingList",
+                response: { result: { added: true } },
+              },
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("throws BrainUnavailableError on an empty response with no text and no function call", async () => {
+      const generateContent = vi.fn().mockResolvedValue({});
+      const brain = createBrain({ generateContent });
+
+      await expect(brain.converse([{ role: "user", text: "hi" }], tools)).rejects.toThrow(
+        BrainUnavailableError,
+      );
+    });
+
+    it("throws BrainUnavailableError after the backoff budget is exhausted", async () => {
+      const sleepCalls: number[] = [];
+      const generateContent = vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error("server error"), { status: 503 }));
+      const brain = createBrain({ generateContent }, sleepCalls);
+
+      await expect(brain.converse([{ role: "user", text: "hi" }], tools)).rejects.toThrow(
+        BrainUnavailableError,
+      );
+      expect(sleepCalls).toEqual([500, 1500]);
+    });
   });
 });
