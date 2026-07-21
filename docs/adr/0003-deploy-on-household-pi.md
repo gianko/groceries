@@ -11,6 +11,16 @@
 > it's computed fresh whenever the Mini App is opened. "If the Pi is down at digest time" below no
 > longer applies to the digest specifically (there's no digest-time to be down for), though it
 > still holds for the nightly snapshot cron, the one scheduled job left.
+>
+> **Amended by #51/#52 (2026-07-21):** the Telegram bot is deleted (#51) — the web app now covers
+> every capability it had. #52 collapses the two-container stack this amendment history describes
+> back down to one: `pantry-web` is the sole long-running process on the Pi, and it registers the
+> nightly snapshot cron at its own startup (`web/src/lib/startup.ts`) instead of a separate bot
+> entrypoint owning it. The `pantry-bot` service/Dockerfile and its Telegram-specific env vars are
+> gone; the Cloudflare Tunnel now fronts the one remaining service. Read "the bot" throughout the
+> original decision below as "the single pantry-web process" — the deploy shape it argues for
+> (one boring long-running process, SQLite on a bind-mounted volume, outbound-only except the
+> tunnel) is unchanged, only the process count is.
 
 Pantry Bot serves exactly one household — two users, a handful of Telegram messages a day, one daily digest. We decided it runs as a single Docker container on the household Raspberry Pi (OpenMediaVault, existing Docker setup), talking to Telegram via long polling, with SQLite on a Docker volume as the only store and the Expiry Digest fired by an in-process scheduler. The bot only ever makes outbound connections — to the Telegram API and to the OCR/LLM API for receipt parsing — so nothing is exposed from the home network: no webhooks, port forwarding, reverse proxy, TLS, or public URL.
 

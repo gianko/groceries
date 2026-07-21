@@ -1,9 +1,12 @@
 # syntax=docker/dockerfile:1
 #
-# Builds the Mini App server (pantry-web): an Astro + Preact SSR app that
-# imports the bot's own domain code (src/*.ts) directly per #25 — no API
-# layer, no separate package.json. Built for the household Pi (arm64) via
-# multi-arch buildx, same as the main Dockerfile.
+# Builds pantry-web: an Astro + Preact SSR app that imports the domain code
+# (src/*.ts) directly per #25 — no API layer, no separate package.json.
+# Since #52 this is the single long-running process for the whole system.
+# The container's own entrypoint is src/webServer.ts (tsc-compiled alongside
+# the Astro build): it registers the heartbeat file and nightly snapshot
+# cron, then starts the Astro server itself — not a separate bot process.
+# Built for the household Pi (arm64) via multi-arch buildx.
 
 FROM node:22-slim AS base
 RUN corepack enable
@@ -23,6 +26,10 @@ COPY src ./src
 COPY drizzle ./drizzle
 COPY web ./web
 RUN pnpm web:build
+# Also compile src/ with tsc — the runtime stage's entrypoint (webServer.js)
+# and its HEALTHCHECK (healthcheck.js) both run standalone via `node`,
+# without pulling in Astro/Vite.
+RUN pnpm build
 
 FROM deps AS prod-deps
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts && pnpm rebuild better-sqlite3
@@ -34,6 +41,7 @@ ENV HOST=0.0.0.0
 ENV PORT=4321
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/web/dist ./web/dist
+COPY --from=build /app/dist ./dist
 COPY drizzle ./drizzle
 COPY package.json ./
 
@@ -44,6 +52,11 @@ USER pantry
 
 VOLUME ["/data"]
 
-# No inbound port published to the host — only cloudflared's sidecar
-# container reaches this over the compose network, per #22.
-CMD ["node", "web/dist/server/entry.mjs"]
+# Liveness comes from the heartbeat file webServer.ts writes at its own
+# startup, not an HTTP probe — no inbound port published to the host either;
+# only cloudflared's sidecar container reaches this over the compose
+# network, per #22.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["node", "dist/healthcheck.js"]
+
+CMD ["node", "--enable-source-maps", "dist/webServer.js"]

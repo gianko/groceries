@@ -8,13 +8,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "node --enable-source-maps dist/index.js",
+    "dev": "cd web && astro dev",
+    "start": "node --enable-source-maps dist/webServer.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "web:dev": "cd web && astro dev",
     "web:build": "cd web && astro build",
-    "web:start": "node web/dist/server/entry.mjs",
     "web:check": "cd web && astro check",
     "mint-token": "tsx src/scripts/mint-token.ts",
     "test": "vitest run",

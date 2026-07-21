@@ -1,17 +1,22 @@
-# Pantry Bot's service definition for the household Pi's OMV Compose plugin
+# Pantry's service definition for the household Pi's OMV Compose plugin
 # stack. CHANGE_TO_COMPOSE_DATA_PATH is OMV's own placeholder — the Compose
 # plugin substitutes it with this project's per-stack data folder when the
 # stack is created/edited through its GUI.
 services:
-  pantry-bot:
+  # Single long-running process for the whole system, per #52 — serves the
+  # web app and, at its own startup, registers the nightly DB-snapshot cron
+  # (the only remaining scheduled job; the Expiry Digest is pull, not push,
+  # per #47). Direct DB access via the /data volume.
+  pantry-web:
     build:
       context: .
+      dockerfile: Dockerfile.web
       # arm64 is the only target that matters on the Pi; buildx handles the
       # cross-build when developing on another architecture.
       platforms:
         - linux/arm64
-    image: pantry-bot:latest
-    container_name: pantry-bot
+    image: pantry-web:latest
+    container_name: pantry-web
     environment:
       - TZ=Europe/Dublin
       - DB_PATH=/data/pantry.db
@@ -23,40 +28,12 @@ services:
       # Bind mount, not a named volume, so the existing OMV backup routine
       # can see the snapshot file directly on the host filesystem.
       - CHANGE_TO_COMPOSE_DATA_PATH/data:/data
-    # No exposed ports: the bot only makes outbound calls (Telegram, Gemini)
-    # via long polling, per ADR 0003.
     restart: unless-stopped
-
-  # Mini App server (#19/#22/#25/#27): new service in the same stack, direct
-  # DB access via the same /data volume as pantry-bot (WAL mode makes
-  # concurrent access from two processes safe). No exposed ports — only
-  # cloudflared reaches it, over the compose network.
-  pantry-web:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
-      platforms:
-        - linux/arm64
-    image: pantry-web:latest
-    container_name: pantry-web
-    environment:
-      - TZ=Europe/Dublin
-      - DB_PATH=/data/pantry.db
-    env_file:
-      - .env
-    volumes:
-      - CHANGE_TO_COMPOSE_DATA_PATH/data:/data
-    restart: unless-stopped
-    depends_on:
-      - pantry-bot
 
   # Named Cloudflare Tunnel fronting pantry-web with a CA-signed HTTPS URL,
-  # per #22 — required for Telegram's WebView to load the Mini App (a
-  # self-signed cert has no equivalent to the webhook pinning workaround,
-  # per docs/research/telegram-mini-app-requirements.md §1). Token comes
-  # from the tunnel's Zero Trust dashboard config, which maps the public
-  # hostname to http://pantry-web:4321 inside the tunnel itself — no ports
-  # opened on this host.
+  # per #22. Token comes from the tunnel's Zero Trust dashboard config,
+  # which maps the public hostname to http://pantry-web:4321 inside the
+  # tunnel itself — no ports opened on this host.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: pantry-cloudflared
