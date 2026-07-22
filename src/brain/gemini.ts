@@ -153,19 +153,27 @@ export class GeminiBrain implements Brain {
 
   private async generateOnce(parts: Part[]): Promise<string> {
     return withBackoff(async () => {
-      const response = await this.models.generateContent({
-        model: this.model,
-        contents: [{ role: "user", parts }],
-        config: {
-          responseMimeType: "application/json",
-          httpOptions: { timeout: REQUEST_TIMEOUT_MS },
-        },
-      });
-      const text = response.text;
-      if (!text) {
-        throw new Error("Empty response from Gemini");
+      const start = Date.now();
+      console.log(`[GeminiBrain] generateContent request (model=${this.model})`);
+      try {
+        const response = await this.models.generateContent({
+          model: this.model,
+          contents: [{ role: "user", parts }],
+          config: {
+            responseMimeType: "application/json",
+            httpOptions: { timeout: REQUEST_TIMEOUT_MS },
+          },
+        });
+        console.log(`[GeminiBrain] generateContent responded in ${Date.now() - start}ms`);
+        const text = response.text;
+        if (!text) {
+          throw new Error("Empty response from Gemini");
+        }
+        return text;
+      } catch (err) {
+        console.error(`[GeminiBrain] generateContent failed after ${Date.now() - start}ms`, err);
+        throw err;
       }
-      return text;
     }, this.sleep);
   }
 

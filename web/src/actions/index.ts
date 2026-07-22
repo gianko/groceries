@@ -231,15 +231,17 @@ export const server = {
       handler: async ({ photo }) => {
         const db = getDb();
         const buffer = Buffer.from(await photo.arrayBuffer());
+        console.log(`[receipt.parse] photo received (${buffer.length} bytes), calling Brain`);
         try {
           const extraction = applyKnownRawNames(
             db,
             await getBrain().extractReceipt(buffer, fetchCatalogNames(db)),
           );
+          console.log(`[receipt.parse] Brain returned ${extraction.lines.length} line(s)`);
           return { available: true as const, extraction };
         } catch (err) {
           if (err instanceof BrainUnavailableError) {
-            console.error("Brain unavailable", err.cause ?? err);
+            console.error("[receipt.parse] Brain unavailable", err.cause ?? err);
             return { available: false as const };
           }
           throw err;
@@ -255,16 +257,18 @@ export const server = {
       input: z.object({ extraction: receiptExtractionSchema }),
       handler: async ({ extraction }) => {
         const db = getDb();
+        console.log(`[receipt.confirm] confirming ${extraction.lines.length} line(s)`);
         try {
           const result = await confirmReceipt(db, getBrain(), systemClock, extraction);
           // Same reconciliation as the old Telegram confirm flow: Product-
           // matched entries close silently, free-text leftovers come back
           // for a human keep/clear decision.
           const reconciled = reconcileShoppingList(db, result.productIds);
+          console.log("[receipt.confirm] saved");
           return { available: true as const, leftoverFreeText: reconciled.leftoverFreeText };
         } catch (err) {
           if (err instanceof BrainUnavailableError) {
-            console.error("Brain unavailable", err.cause ?? err);
+            console.error("[receipt.confirm] Brain unavailable", err.cause ?? err);
             return { available: false as const };
           }
           throw err;
