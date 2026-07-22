@@ -56,9 +56,9 @@ export default function ExpiryDigest({ expiringSoon, justExpired }: Props) {
       {expired.length > 0 && (
         <section>
           <h2 class="section-head">🔺 Just expired — gone or still good?</h2>
-          <ul class="signal-list">
+          <ul class="signal-list signal-list--cards">
             {expired.map((lot) => (
-              <li class="signal-card expiring" key={lot.lotId}>
+              <li class="signal-card expiring confirm" key={lot.lotId}>
                 <div class="signal-body">
                   <span class="signal-title">{lot.productName}</span>
                   <span class="signal-meta">

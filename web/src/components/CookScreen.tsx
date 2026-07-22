@@ -293,9 +293,7 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
               <div>
                 {recipe.ingredients.map((ingredient) => (
                   <div class="ing-row" key={ingredient.name}>
-                    <span class={`ing-dot ${ingredient.present ? "" : "missing"}`}>
-                      {ingredient.present ? "✓" : "✕"}
-                    </span>
+                    <span class={`ing-dot ${ingredient.present ? "" : "missing"}`} />
                     <span class="ing-name">{ingredient.name}</span>
                     <span class="ing-qty">{fmtQty(ingredient.quantity, ingredient.unit)}</span>
                   </div>
