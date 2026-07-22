@@ -20,6 +20,9 @@ const DEFAULT_MODEL = "gemini-3.5-flash";
 // One retry on parse failure (handled in generateJson) plus exponential
 // backoff on 429/5xx for each individual call (handled here).
 const BACKOFF_DELAYS_MS = [500, 1500];
+// The SDK has no default timeout, so a Gemini call that never responds hangs
+// the caller forever instead of surfacing as BrainUnavailableError.
+const REQUEST_TIMEOUT_MS = 30_000;
 
 type Part =
   | { text: string }
@@ -40,6 +43,7 @@ export interface GeminiModelsClient {
     config?: {
       responseMimeType?: string;
       tools?: { functionDeclarations: FunctionDeclaration[] }[];
+      httpOptions?: { timeout?: number };
     };
   }): Promise<{
     text?: string;
@@ -122,7 +126,10 @@ export class GeminiBrain implements Brain {
         this.models.generateContent({
           model: this.model,
           contents,
-          config: { tools: [{ functionDeclarations }] },
+          config: {
+            tools: [{ functionDeclarations }],
+            httpOptions: { timeout: REQUEST_TIMEOUT_MS },
+          },
         }),
       this.sleep,
     ).catch((err: unknown) => {
@@ -149,7 +156,10 @@ export class GeminiBrain implements Brain {
       const response = await this.models.generateContent({
         model: this.model,
         contents: [{ role: "user", parts }],
-        config: { responseMimeType: "application/json" },
+        config: {
+          responseMimeType: "application/json",
+          httpOptions: { timeout: REQUEST_TIMEOUT_MS },
+        },
       });
       const text = response.text;
       if (!text) {
