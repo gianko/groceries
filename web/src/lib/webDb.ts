@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { createFakeBrain } from "../../../src/brain/fake.js";
-import { createGeminiBrain } from "../../../src/brain/gemini.js";
+import { createGroqBrain } from "../../../src/brain/groq.js";
 import type { Brain } from "../../../src/brain.js";
 import type { Config } from "../../../src/config.js";
 import { loadConfig } from "../../../src/config.js";
@@ -31,11 +31,11 @@ export function getDb(): Db {
 
 export function getBrain(): Brain {
   if (!brain) {
-    if (process.env.FAKE_GEMINI === "1") {
-      console.warn("[FakeBrain] FAKE_GEMINI=1 — using canned Brain responses, not calling Gemini");
+    if (process.env.FAKE_BRAIN === "1") {
+      console.warn("[FakeBrain] FAKE_BRAIN=1 — using canned Brain responses, not calling Groq");
       brain = createFakeBrain();
     } else {
-      brain = createGeminiBrain(getConfig().geminiApiKey);
+      brain = createGroqBrain(getConfig().groqApiKey);
     }
   }
   return brain;

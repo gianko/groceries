@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
 
 const validEnv = {
-  GEMINI_API_KEY: "gem-key",
+  GROQ_API_KEY: "groq-key",
   TZ: "Europe/Dublin",
   WEB_APP_URL: "https://pantry.example.com",
 };
@@ -12,7 +12,7 @@ describe("loadConfig", () => {
     const config = loadConfig(validEnv);
 
     expect(config).toEqual({
-      geminiApiKey: "gem-key",
+      groqApiKey: "groq-key",
       tz: "Europe/Dublin",
       dbPath: "pantry.db",
       heartbeatPath: "heartbeat",
@@ -45,7 +45,7 @@ describe("loadConfig", () => {
     });
   });
 
-  it.each(["GEMINI_API_KEY", "TZ", "WEB_APP_URL"])("fails fast when %s is missing", (key) => {
+  it.each(["GROQ_API_KEY", "TZ", "WEB_APP_URL"])("fails fast when %s is missing", (key) => {
     const env = { ...validEnv };
     delete (env as Record<string, string | undefined>)[key];
 

@@ -30,7 +30,7 @@ There's no username/password login. Each household member gets a one-time bootst
 ## Architecture
 
 - **Runtime**: Node 22 + TypeScript, [Astro](https://astro.build/) (server output, `@astrojs/node` standalone adapter) + [Preact](https://preactjs.com/) islands for the UI, [better-sqlite3](https://github.com/WiseLibs/better-sqlite3) + [Drizzle ORM](https://orm.drizzle.team/) for storage.
-- **Brain seam** ([`src/brain.ts`](src/brain.ts)): a single Zod-validated interface (`extractReceipt`, `reviseReceipt`, `suggestRecipes`, `estimateShelfLife`, `parseFreeTextItems`, `reviseFreeTextItems`, `converse`) that every LLM-touching flow goes through. [`src/brain/gemini.ts`](src/brain/gemini.ts) is the only real implementation (Gemini 2.5 Flash), with JSON-only prompts, one retry on parse failure, and exponential backoff before raising `BrainUnavailableError` (surfaced to users as "🧠 busy, try again in a minute"). Shelf-life estimation first consults the free USDA FoodKeeper dataset before falling back to Gemini. [`src/brain/fake.ts`](src/brain/fake.ts) is a canned-response fake, toggled by `FAKE_GEMINI=1`, for dev/testing without burning API quota.
+- **Brain seam** ([`src/brain.ts`](src/brain.ts)): a single Zod-validated interface (`extractReceipt`, `reviseReceipt`, `suggestRecipes`, `estimateShelfLife`, `parseFreeTextItems`, `reviseFreeTextItems`, `converse`) that every LLM-touching flow goes through. [`src/brain/groq.ts`](src/brain/groq.ts) is the default real implementation (Groq's OpenAI-compatible API), with JSON-only prompts, one retry on parse failure, and exponential backoff before raising `BrainUnavailableError` (surfaced to users as "🧠 busy, try again in a minute"). [`src/brain/gemini.ts`](src/brain/gemini.ts) is a working alternative implementation, not currently wired up. Shelf-life estimation first consults the free USDA FoodKeeper dataset before falling back to the Brain. [`src/brain/fake.ts`](src/brain/fake.ts) is a canned-response fake, toggled by `FAKE_BRAIN=1`, for dev/testing without burning API quota.
 - **Data model** ([`src/db/schema.ts`](src/db/schema.ts)): `products` (catalog identity), `stock_lots` (one purchase, `in_stock`/`finished`), `shopping_list_entries`, `raw_name_map` (permanent receipt-string → product), `prefs`, `pendings`, `recipes` (rating history), `person_tokens` (bootstrap-cookie auth). The Expiry Digest has no table of its own — it's derived at query time from `stock_lots` (#47).
 - **Ops**: an in-process heartbeat file backs a Docker `HEALTHCHECK`; a nightly cron `VACUUM INTO`s a snapshot file onto the host filesystem for the existing backup routine to pick up. Both are registered by [`src/webServer.ts`](src/webServer.ts) at process startup and log-and-continue on failure rather than crashing the server.
 
@@ -74,7 +74,7 @@ pnpm dev                # astro dev, runs against a local SQLite file
 
 | Var | Required | Default | Notes |
 |---|---|---|---|
-| `GEMINI_API_KEY` | yes | — | |
+| `GROQ_API_KEY` | yes | — | |
 | `TZ` | yes | — | e.g. `Europe/Dublin`; governs snapshot cron timing |
 | `WEB_APP_URL` | yes | — | public URL used to build bootstrap links (`pnpm mint-token`) |
 | `DB_PATH` | no | `pantry.db` | |
@@ -84,7 +84,7 @@ pnpm dev                # astro dev, runs against a local SQLite file
 | `SNAPSHOT_PATH` | no | `pantry.snapshot.db` | |
 | `SNAPSHOT_CRON` | no | `0 3 * * *` | |
 | `CLOUDFLARE_TUNNEL_TOKEN` | deploy only | — | named tunnel token, from the Zero Trust dashboard |
-| `FAKE_GEMINI` | no | — | set to `1` to use canned Brain responses instead of calling Gemini |
+| `FAKE_BRAIN` | no | — | set to `1` to use canned Brain responses instead of calling Groq |
 
 ### Scripts
 

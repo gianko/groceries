@@ -17,9 +17,9 @@ export interface FakeBrainOptions {
   scriptedConversation?: ChatTurn[];
 }
 
-// Dev-only stand-in for GeminiBrain, toggled by FAKE_GEMINI=1 (see webDb.ts's
+// Dev-only stand-in for a real Brain, toggled by FAKE_BRAIN=1 (see webDb.ts's
 // getBrain()). Returns plausible canned data instead of calling the API, so
-// the web app can be exercised end-to-end without burning Gemini quota or
+// the web app can be exercised end-to-end without burning API quota or
 // hitting rate limits during manual testing.
 export class FakeBrain implements Brain {
   private readonly scriptedConversation: ChatTurn[];

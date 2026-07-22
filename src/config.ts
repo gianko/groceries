@@ -1,5 +1,5 @@
 export interface Config {
-  geminiApiKey: string;
+  groqApiKey: string;
   tz: string;
   dbPath: string;
   heartbeatPath: string;
@@ -10,7 +10,7 @@ export interface Config {
   webAppUrl: string;
 }
 
-const REQUIRED_KEYS = ["GEMINI_API_KEY", "TZ", "WEB_APP_URL"] as const;
+const REQUIRED_KEYS = ["GROQ_API_KEY", "TZ", "WEB_APP_URL"] as const;
 
 const DEFAULT_DB_PATH = "pantry.db";
 const DEFAULT_HEARTBEAT_PATH = "heartbeat";
@@ -35,7 +35,7 @@ export function loadConfig(env: EnvSource = process.env): Config {
     : DEFAULT_HEARTBEAT_STALE_MS;
 
   return {
-    geminiApiKey: env.GEMINI_API_KEY!,
+    groqApiKey: env.GROQ_API_KEY!,
     tz: env.TZ!,
     dbPath: env.DB_PATH ?? DEFAULT_DB_PATH,
     heartbeatPath: env.HEARTBEAT_PATH ?? DEFAULT_HEARTBEAT_PATH,
