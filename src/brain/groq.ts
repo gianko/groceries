@@ -56,6 +56,7 @@ export interface GroqChatClient {
     tools?: ToolDeclaration[];
     reasoning_format?: "raw" | "parsed" | "hidden";
     reasoning_effort?: "none" | "default";
+    max_completion_tokens?: number;
   }): Promise<{
     choices: {
       message: {
@@ -190,20 +191,22 @@ export class GroqBrain implements Brain {
             model: this.model,
             messages,
             response_format: { type: "json_object" },
-            // qwen3.6 reasons by default, which was breaking Groq's own
-            // JSON-mode validator server-side (400 json_validate_failed,
-            // empty failed_generation — reasoning_format: "hidden" alone
-            // didn't fix it, since the model still spends its token budget
-            // reasoning before ever emitting JSON). "none" turns reasoning
-            // off outright — fine for this structured-extraction task,
-            // which needs no chain-of-thought.
-            reasoning_effort: "none",
+            // qwen3.6 reasons by default; reasoning_format: "hidden" keeps
+            // that reasoning out of the response body so it stays clean
+            // JSON. Disabling reasoning outright (reasoning_effort: "none")
+            // fixed the earlier 400 json_validate_failed but tanked receipt
+            // OCR accuracy (multi-line extraction needs the step-by-step
+            // read), so instead give the model plenty of headroom to reason
+            // AND still fit the full JSON answer.
             reasoning_format: "hidden",
+            max_completion_tokens: 8192,
           }),
           REQUEST_TIMEOUT_MS,
         );
-        console.log(`[GroqBrain] createChatCompletion responded in ${Date.now() - start}ms`);
         const text = response.choices[0]?.message.content;
+        console.log(
+          `[GroqBrain] createChatCompletion responded in ${Date.now() - start}ms (${text?.length ?? 0} chars)`,
+        );
         if (!text) {
           throw new Error("Empty response from Groq");
         }
