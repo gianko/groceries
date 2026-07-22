@@ -54,6 +54,7 @@ export interface GroqChatClient {
     messages: Message[];
     response_format?: { type: "json_object" };
     tools?: ToolDeclaration[];
+    reasoning_format?: "raw" | "parsed" | "hidden";
   }): Promise<{
     choices: {
       message: {
@@ -188,6 +189,11 @@ export class GroqBrain implements Brain {
             model: this.model,
             messages,
             response_format: { type: "json_object" },
+            // qwen3.6 emits <think>...</think> reasoning by default, which
+            // breaks Groq's own JSON-mode validator (surfaces as a 400
+            // json_validate_failed with no content to retry-parse). Hidden
+            // strips reasoning so the response body is clean JSON.
+            reasoning_format: "hidden",
           }),
           REQUEST_TIMEOUT_MS,
         );
