@@ -5,6 +5,45 @@ import type { ShoppingListEntry } from "../../../src/list.js";
 import { useToast } from "../lib/toast";
 import { entryLabel } from "./ShoppingScreen";
 
+const MAX_DIMENSION = 1600;
+const JPEG_QUALITY = 0.8;
+
+async function resizeImage(file: File): Promise<File> {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = objectUrl;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("failed to decode image"));
+    });
+
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(img.naturalWidth, img.naturalHeight));
+    const width = Math.round(img.naturalWidth * scale);
+    const height = Math.round(img.naturalHeight * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error("canvas 2d context unavailable");
+    }
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY),
+    );
+    if (!blob) {
+      throw new Error("canvas toBlob failed");
+    }
+
+    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 type Status =
   | { step: "picking" }
   | { step: "parsing" }
@@ -32,13 +71,14 @@ export default function ReceiptScreen() {
     setStatus({ step: "editing", lines: data.extraction.lines });
   }
 
-  function onFileChange(e: Event) {
+  async function onFileChange(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) {
       return;
     }
-    photoRef.current = file;
-    parse(file);
+    const photo = await resizeImage(file).catch(() => file);
+    photoRef.current = photo;
+    parse(photo);
   }
 
   function retryParse() {
