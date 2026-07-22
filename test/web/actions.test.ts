@@ -449,6 +449,47 @@ describe("receipt.confirm", () => {
   });
 });
 
+describe("pantry.addFreeText", () => {
+  it("parses free text and persists a Product + Stock Lot per line", async () => {
+    brain.scriptParseFreeTextItems(
+      ok({ lines: [{ name: "spinach", category: "food", quantity: 2, unit: "bags" }] }),
+    );
+    brain.scriptEstimateShelfLife(ok([{ name: "spinach", days: 5 }]));
+
+    const result = await call(server.pantry.addFreeText, { text: "2 bags of spinach" });
+
+    expect(result.available).toBe(true);
+    expect(result.lots).toHaveLength(1);
+    expect(result.lots[0]).toMatchObject({
+      productName: "spinach",
+      category: "food",
+      quantity: 2,
+      unit: "bags",
+    });
+  });
+
+  it("returns no lots when the Brain finds nothing to add", async () => {
+    brain.scriptParseFreeTextItems(ok({ lines: [] }));
+
+    const result = await call(server.pantry.addFreeText, { text: "hmm" });
+
+    expect(result).toEqual({ available: true, lots: [] });
+  });
+
+  it("reports unavailable and writes nothing when the Brain's parse call fails", async () => {
+    brain.scriptParseFreeTextItems(fail(new BrainUnavailableError("down")));
+
+    const result = await call(server.pantry.addFreeText, { text: "2 bags of spinach" });
+
+    expect(result).toEqual({ available: false });
+    expect(db.select().from(products).all()).toEqual([]);
+  });
+
+  it("rejects empty text", async () => {
+    await expect(call(server.pantry.addFreeText, { text: "" })).rejects.toThrow();
+  });
+});
+
 describe("shopping.addManual", () => {
   it("adds a manual entry", async () => {
     const entry = await call(server.shopping.addManual, { text: "Coffee" });

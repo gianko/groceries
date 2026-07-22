@@ -107,77 +107,88 @@ export default function ChatPane({ loadedSuggestions, onOpenRecipe }: Props) {
       )}
 
       {open && (
-        <div class="chat-pane">
-          <div class="chat-header">
-            <span>Cook agent</span>
-            <button
-              type="button"
-              class="chat-close"
-              onClick={() => setOpen(false)}
-              aria-label="Close cook agent chat"
-            >
-              ✕
-            </button>
-          </div>
+        <div class="sheet-scrim">
+          <button
+            type="button"
+            class="sheet-backdrop"
+            onClick={() => setOpen(false)}
+            aria-label="Close cook agent chat"
+          />
+          <div class="sheet chat-pane">
+            <div class="chat-header">
+              <span>💬 Cook agent</span>
+              <button
+                type="button"
+                class="chat-close"
+                onClick={() => setOpen(false)}
+                aria-label="Close cook agent chat"
+              >
+                ✕
+              </button>
+            </div>
 
-          <div class="chat-log">
-            {messages.length === 0 && (
-              <p class="empty-state">
-                Ask what to cook, what's in stock or expiring, or your favorites.
-              </p>
-            )}
-            {messages.map((msg, i) => (
-              <div class={`chat-msg ${msg.role}`} key={i}>
-                <div class="chat-bubble">{msg.text}</div>
-                {msg.attachments.map((attachment, j) => (
-                  <div class="chat-attachment" key={j}>
-                    {attachment.type === "recipe" && (
-                      <ul class="recipe-list">
-                        <li>
-                          <RecipeCard
-                            recipe={attachment.recipe}
-                            showMissing
-                            onOpen={onOpenRecipe}
-                          />
-                        </li>
-                      </ul>
-                    )}
-                    {attachment.type === "confirmCook" && (
-                      <button
-                        type="button"
-                        class="primary-btn"
-                        disabled={sending}
-                        onClick={confirmCook}
-                      >
-                        {sending ? "Cooking…" : `Confirm cook "${attachment.recipe.title}"`}
-                      </button>
-                    )}
-                    {attachment.type === "finishChecklist" && (
-                      <FinishChecklist lots={attachment.lots} />
-                    )}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
+            <div class="chat-log">
+              {messages.length === 0 && (
+                <p class="empty-state">
+                  Ask what to cook, what's in stock or expiring, or your favorites.
+                </p>
+              )}
+              {messages.map((msg, i) => (
+                <div class={`chat-msg ${msg.role}`} key={i}>
+                  <div class="chat-bubble">{msg.text}</div>
+                  {msg.attachments.map((attachment, j) => (
+                    <div class="chat-attachment" key={j}>
+                      {attachment.type === "recipe" && (
+                        <ul class="recipe-list">
+                          <li>
+                            <RecipeCard
+                              recipe={attachment.recipe}
+                              showMissing
+                              onOpen={onOpenRecipe}
+                            />
+                          </li>
+                        </ul>
+                      )}
+                      {attachment.type === "confirmCook" && (
+                        <button
+                          type="button"
+                          class="primary-btn"
+                          disabled={sending}
+                          onClick={confirmCook}
+                        >
+                          {sending ? "Cooking…" : `Confirm cook "${attachment.recipe.title}"`}
+                        </button>
+                      )}
+                      {attachment.type === "finishChecklist" && (
+                        <FinishChecklist lots={attachment.lots} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
 
-          <form class="chat-input-bar" onSubmit={submitMessage}>
-            <input
-              type="text"
-              value={input}
-              disabled={sending || awaitingConfirm}
-              placeholder={
-                awaitingConfirm ? "Confirm the cook above to continue…" : "Message the cook agent…"
-              }
-              onInput={(e) => setInput((e.target as HTMLInputElement).value)}
-            />
-            <button
-              type="submit"
-              disabled={sending || awaitingConfirm || input.trim().length === 0}
-            >
-              Send
-            </button>
-          </form>
+            <form class="chat-input-bar" onSubmit={submitMessage}>
+              <input
+                type="text"
+                value={input}
+                disabled={sending || awaitingConfirm}
+                placeholder={
+                  awaitingConfirm
+                    ? "Confirm the cook above to continue…"
+                    : "Message the cook agent…"
+                }
+                onInput={(e) => setInput((e.target as HTMLInputElement).value)}
+              />
+              <button
+                type="submit"
+                disabled={sending || awaitingConfirm || input.trim().length === 0}
+                aria-label="Send"
+              >
+                ↑
+              </button>
+            </form>
+          </div>
         </div>
       )}
     </>

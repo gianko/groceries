@@ -2,6 +2,7 @@ import { actions } from "astro:actions";
 import { useState } from "preact/hooks";
 import type { Prefs } from "../../../src/prefs.js";
 import type { Staple } from "../../../src/staple.js";
+import { useToast } from "../lib/toast";
 
 interface Props {
   staples: Staple[];
@@ -25,6 +26,7 @@ export default function StaplesPrefsScreen({ staples, prefs }: Props) {
   const [blurb, setBlurb] = useState(initialBlurb);
   const [saving, setSaving] = useState(false);
   const [prefsNotice, setPrefsNotice] = useState<string | null>(null);
+  const { toast, show: showToast } = useToast();
 
   const dirty = size !== savedSize || blurb !== savedBlurb;
 
@@ -72,18 +74,20 @@ export default function StaplesPrefsScreen({ staples, prefs }: Props) {
     setPrefsNotice(null);
     setSavedSize(data.householdSize ?? 1);
     setSavedBlurb(data.blurb ?? "");
+    showToast("Saved");
   }
 
   return (
     <div>
       <header class="screen-head">
+        <div class="screen-eyebrow">CHEFBOTCITO</div>
         <h1>Staples &amp; prefs</h1>
       </header>
 
       {notice && <div class="notice">{notice}</div>}
 
       <section>
-        <h2 class="section-head">📌 Staples</h2>
+        <h2 class="section-head">🧂 Staples</h2>
         {items.length === 0 ? (
           <p class="empty-state">No staples declared yet</p>
         ) : (
@@ -94,7 +98,7 @@ export default function StaplesPrefsScreen({ staples, prefs }: Props) {
                   <span class="entry-name">{staple.name}</span>
                   <button
                     type="button"
-                    class="pill-btn dismiss"
+                    class="pill-btn gone"
                     disabled={removingId === staple.id}
                     onClick={() => remove(staple)}
                   >
@@ -122,49 +126,53 @@ export default function StaplesPrefsScreen({ staples, prefs }: Props) {
       <hr class="section-divider" />
 
       <section>
-        <h2 class="section-head">👨‍👩‍👧 Household prefs</h2>
+        <h2 class="section-head">🏠 Household prefs</h2>
 
         {prefsNotice && <div class="notice">{prefsNotice}</div>}
 
-        <div class="prefs-field">
-          <label class="prefs-label" for="household-size">
-            Household size
-          </label>
-          <div class="stepper">
-            <button
-              type="button"
-              class="stepper-btn"
-              disabled={size <= 1}
-              onClick={() => setSize((s) => Math.max(1, s - 1))}
-            >
-              −
-            </button>
-            <span class="stepper-value" id="household-size">
-              {size}
-            </span>
-            <button type="button" class="stepper-btn" onClick={() => setSize((s) => s + 1)}>
-              +
-            </button>
+        <div class="prefs-card">
+          <div class="prefs-field">
+            <label class="prefs-label" for="household-size">
+              Household size
+            </label>
+            <div class="stepper">
+              <button
+                type="button"
+                class="stepper-btn"
+                disabled={size <= 1}
+                onClick={() => setSize((s) => Math.max(1, s - 1))}
+              >
+                −
+              </button>
+              <span class="stepper-value" id="household-size">
+                {size}
+              </span>
+              <button type="button" class="stepper-btn" onClick={() => setSize((s) => s + 1)}>
+                +
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div class="prefs-field">
-          <label class="prefs-label" for="blurb">
-            Cooking notes
-          </label>
-          <textarea
-            id="blurb"
-            class="prefs-textarea"
-            placeholder="e.g. weeknight meals under 45 min"
-            value={blurb}
-            onInput={(e) => setBlurb((e.target as HTMLTextAreaElement).value)}
-          />
-        </div>
+          <div class="prefs-field">
+            <label class="prefs-label" for="blurb">
+              Cooking notes
+            </label>
+            <textarea
+              id="blurb"
+              class="prefs-textarea"
+              placeholder="e.g. weeknight meals under 45 min"
+              value={blurb}
+              onInput={(e) => setBlurb((e.target as HTMLTextAreaElement).value)}
+            />
+          </div>
 
-        <button type="button" class="save-btn" disabled={!dirty || saving} onClick={savePrefs}>
-          {saving ? "Saving…" : "Save"}
-        </button>
+          <button type="button" class="save-btn" disabled={!dirty || saving} onClick={savePrefs}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
       </section>
+
+      {toast && <div class="toast">{toast}</div>}
     </div>
   );
 }

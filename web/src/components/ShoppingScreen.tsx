@@ -107,6 +107,7 @@ export default function ShoppingScreen({ entries, expiringLots, cycleGuesses }: 
   return (
     <div>
       <header class="screen-head">
+        <div class="screen-eyebrow">CHEFBOTCITO</div>
         <h1>Shopping list</h1>
       </header>
 
@@ -114,7 +115,7 @@ export default function ShoppingScreen({ entries, expiringLots, cycleGuesses }: 
 
       {expiring.length > 0 && (
         <section>
-          <h2 class="section-head">⏰ Use soon / don't rebuy</h2>
+          <h2 class="section-head">⏳ Use soon / don't rebuy</h2>
           <ul class="signal-list">
             {expiring.map((lot) => (
               <li class="signal-card expiring" key={lot.lotId}>
@@ -172,7 +173,7 @@ export default function ShoppingScreen({ entries, expiringLots, cycleGuesses }: 
 
       {guesses.length > 0 && (
         <section>
-          <h2 class="section-head">🔁 Probably low</h2>
+          <h2 class="section-head">🔮 Probably low</h2>
           <ul class="signal-list">
             {guesses.map((guess) => (
               <li class="signal-card guess" key={guess.productId}>

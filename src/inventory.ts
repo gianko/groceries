@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { products, stockLots } from "./db/schema.js";
 import type { Db } from "./db.js";
 
@@ -31,6 +31,29 @@ export function fetchInStockLots(db: Db): InventoryLot[] {
     .from(stockLots)
     .innerJoin(products, eq(stockLots.productId, products.id))
     .where(eq(stockLots.status, "in_stock"))
+    .all();
+}
+
+// Fetches the just-inserted Lots (in insertion order isn't guaranteed by SQL,
+// so the web pantry-add UI re-sorts by whatever order it wants) for the
+// pantry-add action's response, so the client can insert them into its list
+// without a full page reload.
+export function fetchLotsByIds(db: Db, lotIds: number[]): InventoryLot[] {
+  if (lotIds.length === 0) {
+    return [];
+  }
+  return db
+    .select({
+      lotId: stockLots.id,
+      productName: products.name,
+      category: products.category,
+      quantity: stockLots.quantity,
+      unit: stockLots.unit,
+      estExpiry: stockLots.estExpiry,
+    })
+    .from(stockLots)
+    .innerJoin(products, eq(stockLots.productId, products.id))
+    .where(inArray(stockLots.id, lotIds))
     .all();
 }
 

@@ -24,6 +24,10 @@ const justExpired = fetchJustExpiredLots(db, systemClock);
 ---
 
 <Base title="Pantry">
+  <header class="screen-head">
+    <div class="screen-eyebrow">CHEFBOTCITO</div>
+    <h1>Pantry</h1>
+  </header>
   {digestQualifies(expiringSoon, justExpired) && (
     <ExpiryDigest client:load expiringSoon={expiringSoon} justExpired={justExpired} />
   )}

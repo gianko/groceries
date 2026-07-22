@@ -7,6 +7,7 @@ import type {
   DecrementedLot,
   FinishConfirmationLot,
 } from "../../../src/cook.js";
+import { useToast } from "../lib/toast";
 import ChatPane from "./ChatPane";
 import FinishChecklist from "./FinishChecklist";
 import RecipeCard from "./RecipeCard";
@@ -66,7 +67,8 @@ export default function CookScreen({ favoritesTonight, allFavorites }: Props) {
 
   return (
     <div>
-      <header class="screen-head">
+      <header class="screen-head cook">
+        <div class="screen-eyebrow">CHEFBOTCITO</div>
         <h1>Cook</h1>
       </header>
 
@@ -86,13 +88,12 @@ export default function CookScreen({ favoritesTonight, allFavorites }: Props) {
           {brain.status === "available" && (
             <RecipeList
               recipes={brain.cookTonight}
-              icon="🍳"
               onOpen={setOpenRecipe}
               emptyText="Nothing fully in stock for tonight."
             />
           )}
 
-          <h2 class="section-head">🥘 Almost there</h2>
+          <h2 class="section-head">🧩 Almost there</h2>
           {brain.status === "loading" && <p class="empty-state">Loading…</p>}
           {brain.status === "unavailable" && (
             <p class="empty-state">🧠 Recipe ideas aren't available right now.</p>
@@ -100,7 +101,6 @@ export default function CookScreen({ favoritesTonight, allFavorites }: Props) {
           {brain.status === "available" && (
             <RecipeList
               recipes={brain.almostThere}
-              icon="🥘"
               onOpen={setOpenRecipe}
               showMissing
               emptyText="Nothing close — check the shopping list."
@@ -115,7 +115,6 @@ export default function CookScreen({ favoritesTonight, allFavorites }: Props) {
           </div>
           <RecipeList
             recipes={favoritesTonight}
-            icon="⭐"
             onOpen={setOpenRecipe}
             emptyText="None of your favorites are fully in stock tonight."
           />
@@ -131,13 +130,11 @@ export default function CookScreen({ favoritesTonight, allFavorites }: Props) {
 
 function RecipeList({
   recipes,
-  icon,
   onOpen,
   showMissing = false,
   emptyText,
 }: {
   recipes: CookRecipe[];
-  icon: string;
   onOpen: (recipe: CookRecipe) => void;
   showMissing?: boolean;
   emptyText: string;
@@ -150,7 +147,7 @@ function RecipeList({
     <ul class="recipe-list">
       {recipes.map((recipe) => (
         <li key={recipe.title}>
-          <RecipeCard recipe={recipe} icon={icon} showMissing={showMissing} onOpen={onOpen} />
+          <RecipeCard recipe={recipe} showMissing={showMissing} onOpen={onOpen} />
         </li>
       ))}
     </ul>
@@ -183,18 +180,14 @@ function FavoritesBrowse({
             return (
               <li key={recipe.title}>
                 <button type="button" class="recipe-row" onClick={() => onOpen(recipe)}>
-                  <span class="recipe-icon">⭐</span>
+                  <span class="recipe-icon">🍽️</span>
                   <span class="recipe-main">
                     <span class="recipe-title">{recipe.title}</span>
-                    <span class="recipe-sub">
-                      {missing.length === 0
-                        ? "Fully in stock tonight"
-                        : `Missing: ${missing.map((i) => i.name).join(", ")}`}
-                    </span>
+                    {missing.length > 0 && (
+                      <span class="recipe-sub">{missing.map((i) => i.name).join(", ")}</span>
+                    )}
                   </span>
-                  <span class={`tag ${missing.length === 0 ? "gold" : "missing"}`}>
-                    {missing.length === 0 ? "tonight" : "missing"}
-                  </span>
+                  {missing.length > 0 && <span class="tag missing">missing {missing.length}</span>}
                 </button>
               </li>
             );
@@ -220,6 +213,7 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
   const [finishRemaining, setFinishRemaining] = useState<FinishConfirmationLot[]>([]);
   const [rating, setRating] = useState<"up" | "down" | null>(null);
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
+  const { toast, show: showToast } = useToast();
 
   const missing = missingOf(recipe);
 
@@ -248,6 +242,7 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
     setAddingMissing(false);
     if (!error) {
       setMissingAdded(true);
+      showToast(`Added ${missing.length} to shopping list`);
     }
   }
 
@@ -260,6 +255,7 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
     setRatingSubmitting(false);
     if (!error && data?.rated) {
       setRating(value);
+      showToast(value === "up" ? "Thanks!" : "Noted — thanks");
     }
   }
 
@@ -313,26 +309,6 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
                   <li key={i}>{step}</li>
                 ))}
               </ol>
-            )}
-
-            {missing.length === 0 ? (
-              <button type="button" class="primary-btn" disabled={committing} onClick={commit}>
-                {committing ? "Cooking…" : "Cook this"}
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  class="primary-btn"
-                  disabled={addingMissing || missingAdded}
-                  onClick={addMissing}
-                >
-                  {missingAdded ? "Added" : `Add ${missing.length} missing to shopping list`}
-                </button>
-                <button type="button" class="ghost-btn" disabled={committing} onClick={commit}>
-                  {committing ? "Cooking…" : "Cook anyway (skip missing)"}
-                </button>
-              </>
             )}
           </>
         ) : (
@@ -397,6 +373,32 @@ function RecipeModal({ recipe, onClose }: { recipe: CookRecipe; onClose: () => v
           </div>
         )}
       </div>
+
+      {!result && (
+        <div class="modal-footer">
+          {missing.length === 0 ? (
+            <button type="button" class="primary-btn" disabled={committing} onClick={commit}>
+              {committing ? "Cooking…" : "Cook this"}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                class="primary-btn"
+                disabled={addingMissing || missingAdded}
+                onClick={addMissing}
+              >
+                {missingAdded ? "Added" : `Add ${missing.length} missing to shopping list`}
+              </button>
+              <button type="button" class="ghost-btn" disabled={committing} onClick={commit}>
+                {committing ? "Cooking…" : "Cook anyway (skip missing)"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {toast && <div class="toast">{toast}</div>}
     </div>
   );
 }

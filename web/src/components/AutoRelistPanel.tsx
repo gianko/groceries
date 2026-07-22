@@ -17,11 +17,11 @@ export default function AutoRelistPanel({ offers, onDecide }: Props) {
         <div class="auto-relist-row" key={offer.productId}>
           <span>{offer.productName}</span>
           <div class="auto-relist-actions">
-            <button type="button" onClick={() => onDecide(offer.productId, true)}>
-              Yes
-            </button>
             <button type="button" onClick={() => onDecide(offer.productId, false)}>
               No
+            </button>
+            <button type="button" onClick={() => onDecide(offer.productId, true)}>
+              Yes
             </button>
           </div>
         </div>

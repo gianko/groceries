@@ -3,7 +3,9 @@ import { useState } from "preact/hooks";
 import type { FinishBatchResult } from "../../../src/finish.js";
 import type { InventoryLot } from "../../../src/inventory.js";
 import { useAutoRelistOffers } from "../lib/autoRelistOffers";
+import { useToast } from "../lib/toast";
 import AutoRelistPanel from "./AutoRelistPanel";
+import PantryAddSheet from "./PantryAddSheet";
 
 type FinishResult = FinishBatchResult["results"][number];
 
@@ -17,7 +19,9 @@ export default function InventoryChecklist({ food, household }: Props) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const { offers, addOffers, decideOffer } = useAutoRelistOffers();
+  const { toast, show: showToast } = useToast();
 
   function toggle(lotId: number) {
     setSelected((prev) => {
@@ -55,6 +59,9 @@ export default function InventoryChecklist({ food, household }: Props) {
     }));
     setSelected(new Set());
 
+    if (finishedIds.size > 0) {
+      showToast("Marked finished");
+    }
     if (failed.length > 0) {
       const names = failed.map((f: FinishResult) => f.productName).join(", ");
       const verb = failed.length > 1 ? "were" : "was";
@@ -72,25 +79,30 @@ export default function InventoryChecklist({ food, household }: Props) {
 
   return (
     <div>
-      <header class="screen-head">
-        <h1>Pantry</h1>
-      </header>
-
       {notice && <div class="notice">{notice}</div>}
 
       <AutoRelistPanel offers={offers} onDecide={decideOffer} />
 
       {items.food.length > 0 && (
-        <Section title="🍎 FOOD" lots={items.food} selected={selected} onToggle={toggle} />
+        <Section title="🥫 Food" lots={items.food} selected={selected} onToggle={toggle} />
       )}
       {items.household.length > 0 && (
         <Section
-          title="🧽 HOUSEHOLD"
+          title="🧻 Household"
           lots={items.household}
           selected={selected}
           onToggle={toggle}
         />
       )}
+
+      <button
+        type="button"
+        class="fab fab-add"
+        onClick={() => setAddOpen(true)}
+        aria-label="Add to pantry"
+      >
+        +
+      </button>
 
       {selected.size > 0 && (
         <div class="confirm-bar">
@@ -99,6 +111,21 @@ export default function InventoryChecklist({ food, household }: Props) {
           </button>
         </div>
       )}
+
+      {addOpen && (
+        <PantryAddSheet
+          onClose={() => setAddOpen(false)}
+          onToast={showToast}
+          onAdded={(lots) => {
+            setItems((prev) => ({
+              food: [...lots.filter((l) => l.category === "food"), ...prev.food],
+              household: [...lots.filter((l) => l.category === "household"), ...prev.household],
+            }));
+          }}
+        />
+      )}
+
+      {toast && <div class="toast">{toast}</div>}
     </div>
   );
 }
@@ -118,22 +145,25 @@ function Section({
     <section>
       <h2 class="section-head">{title}</h2>
       <ul class="lot-list">
-        {lots.map((lot) => (
-          <li key={lot.lotId}>
-            <label class="lot-row">
-              <input
-                type="checkbox"
-                checked={selected.has(lot.lotId)}
-                onChange={() => onToggle(lot.lotId)}
-              />
-              <span class="lot-name">{lot.productName}</span>
-              <span class="lot-meta">
-                {lot.unit ? `${lot.quantity} ${lot.unit}` : lot.quantity}
-                {lot.estExpiry ? ` · exp ${lot.estExpiry}` : ""}
-              </span>
-            </label>
-          </li>
-        ))}
+        {lots.map((lot) => {
+          const checked = selected.has(lot.lotId);
+          return (
+            <li key={lot.lotId}>
+              <button type="button" class="lot-row" onClick={() => onToggle(lot.lotId)}>
+                <span class={`check-circle ${checked ? "checked" : ""}`} aria-hidden="true">
+                  {checked ? "✓" : ""}
+                </span>
+                <span class="lot-body">
+                  <span class="lot-name">{lot.productName}</span>
+                  {lot.estExpiry && <span class="lot-expiry">exp {lot.estExpiry}</span>}
+                </span>
+                <span class="lot-meta">
+                  {lot.unit ? `${lot.quantity} ${lot.unit}` : lot.quantity}
+                </span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

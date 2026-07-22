@@ -1,0 +1,22 @@
+---
+const path = Astro.url.pathname;
+
+const items = [
+  { href: "/", icon: "🥫", label: "Pantry" },
+  { href: "/cook", icon: "🍳", label: "Cook" },
+  { href: "/shopping", icon: "🛒", label: "Shopping" },
+  { href: "/staples", icon: "🧂", label: "Staples" },
+  { href: "/receipt", icon: "📷", label: "Receipt" },
+];
+---
+
+<nav class="bottom-nav">
+  {
+    items.map((item) => (
+      <a class={`nav-item ${path === item.href ? "active" : ""}`} href={item.href}>
+        <span class="nav-icon">{item.icon}</span>
+        <span class="nav-label">{item.label}</span>
+      </a>
+    ))
+  }
+</nav>

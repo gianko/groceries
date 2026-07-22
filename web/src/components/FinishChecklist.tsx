@@ -69,12 +69,20 @@ export default function FinishChecklist({ lots: initialLots, onChange }: Props) 
       {lots.length > 0 && (
         <>
           <h3>Nearly out — confirm finished</h3>
-          {lots.map((lot) => (
-            <button type="button" class="fc-row" key={lot.lotId} onClick={() => toggle(lot.lotId)}>
-              <span class="fc-check">{checked.has(lot.lotId) ? "✓" : ""}</span>
-              <span>{lot.productName}</span>
-            </button>
-          ))}
+          {lots.map((lot) => {
+            const isChecked = checked.has(lot.lotId);
+            return (
+              <button
+                type="button"
+                class="fc-row"
+                key={lot.lotId}
+                onClick={() => toggle(lot.lotId)}
+              >
+                <span class={`fc-check ${isChecked ? "checked" : ""}`}>{isChecked ? "✓" : ""}</span>
+                <span>{lot.productName}</span>
+              </button>
+            );
+          })}
           <div class="fc-bar">
             <span>{checked.size} selected</span>
             <button

@@ -1,5 +1,6 @@
 import { defineAction } from "astro:actions";
 import { z } from "zod";
+import { confirmAddItems } from "../../../src/add.js";
 import { BrainUnavailableError, receiptExtractionSchema } from "../../../src/brain.js";
 import { systemClock } from "../../../src/clock.js";
 import {
@@ -27,6 +28,7 @@ import {
   finishBatch,
   finishLot,
 } from "../../../src/finish.js";
+import { fetchLotsByIds } from "../../../src/inventory.js";
 import { addManualEntry } from "../../../src/list.js";
 import { fetchPrefs, savePrefs } from "../../../src/prefs.js";
 import { applyKnownRawNames, confirmReceipt, fetchCatalogNames } from "../../../src/receipt.js";
@@ -52,6 +54,36 @@ export const server = {
       handler: ({ productId, wantsAutoRelist }) => ({
         applied: decideAutoRelistDb(getDb(), productId, wantsAutoRelist),
       }),
+    }),
+  },
+  pantry: {
+    // Free-text bootstrap/receipt-less entry per the restored #17 flow: the
+    // Brain parses "2 bags of spinach, a dozen eggs" into lines, then
+    // confirmAddItems persists them the same way a receipt line would
+    // (matched-or-created Product, one Stock Lot per line), minus rawNameMap
+    // since free text carries no Raw Name. A Brain failure returns
+    // `available: false` so the client can show a retry toast without
+    // anything half-written.
+    addFreeText: defineAction({
+      input: z.object({ text: z.string().min(1) }),
+      handler: async ({ text }) => {
+        const db = getDb();
+        const brain = getBrain();
+        try {
+          const extraction = await brain.parseFreeTextItems(text, fetchCatalogNames(db));
+          if (extraction.lines.length === 0) {
+            return { available: true as const, lots: [] };
+          }
+          const { lotIds } = await confirmAddItems(db, brain, systemClock, extraction);
+          return { available: true as const, lots: fetchLotsByIds(db, lotIds) };
+        } catch (err) {
+          if (err instanceof BrainUnavailableError) {
+            console.error("Brain unavailable", err.cause ?? err);
+            return { available: false as const };
+          }
+          throw err;
+        }
+      },
     }),
   },
   digest: {

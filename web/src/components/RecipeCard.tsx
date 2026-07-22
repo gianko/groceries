@@ -17,17 +17,16 @@ export default function RecipeCard({ recipe, icon = "🍽️", showMissing = fal
     <button type="button" class="recipe-row" onClick={() => onOpen(recipe)}>
       <span class="recipe-icon">{icon}</span>
       <span class="recipe-main">
-        <span class="recipe-title">
-          {recipe.title}
-          {showMissing && missing.length > 0 && (
-            <span class="tag missing"> missing {missing.length}</span>
-          )}
-        </span>
+        <span class="recipe-title">{recipe.title}</span>
         {showMissing && missing.length > 0 && (
           <span class="recipe-sub">{missing.map((i) => i.name).join(", ")}</span>
         )}
       </span>
-      <span class="recipe-chev">›</span>
+      {showMissing && missing.length > 0 ? (
+        <span class="tag missing">missing {missing.length}</span>
+      ) : (
+        <span class="recipe-chev">→</span>
+      )}
     </button>
   );
 }
