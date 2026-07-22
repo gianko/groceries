@@ -52,6 +52,19 @@ export function fetchStaples(db: Db): Staple[] {
     .all();
 }
 
+// Feeds the Add Staple input's autocomplete, so promoting an existing
+// Product to a Staple doesn't require retyping its exact name (and risking
+// a near-duplicate Product via setStaple's case-insensitive match).
+export function fetchNonStapleProductNames(db: Db): string[] {
+  return db
+    .select({ name: products.name })
+    .from(products)
+    .where(eq(products.isStaple, false))
+    .orderBy(sql`lower(${products.name})`)
+    .all()
+    .map((row) => row.name);
+}
+
 // Symmetric with setStaple, but never creates a Product — un-staple only
 // ever acts on something already declared, so a no-match name is a no-op.
 // Returns the matched Product's stored name (null on no-op) so callers can

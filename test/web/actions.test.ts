@@ -555,6 +555,15 @@ describe("staple.setStaple / unstaple", () => {
     expect(result.staples.map((s) => s.name)).not.toContain("Pepper");
   });
 
+  it("returns non-staple product names for the add-staple autocomplete", async () => {
+    seedProduct({ name: "Milk", isStaple: false });
+
+    const result = await call(server.staple.setStaple, { name: "Salt" });
+
+    expect(result.nonStapleNames).toContain("Milk");
+    expect(result.nonStapleNames).not.toContain("Salt");
+  });
+
   it("rejects a blank name", async () => {
     await expect(call(server.staple.setStaple, { name: "" })).rejects.toThrow();
   });

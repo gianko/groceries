@@ -34,7 +34,12 @@ import { fetchPrefs, savePrefs } from "../../../src/prefs.js";
 import { applyKnownRawNames, confirmReceipt, fetchCatalogNames } from "../../../src/receipt.js";
 import { clearEntry, reconcileShoppingList } from "../../../src/reconcile.js";
 import { addCycleGuessEntry } from "../../../src/shopping.js";
-import { fetchStaples, setStaple, unstaple as unstapleDb } from "../../../src/staple.js";
+import {
+  fetchNonStapleProductNames,
+  fetchStaples,
+  setStaple,
+  unstaple as unstapleDb,
+} from "../../../src/staple.js";
 import { getBrain, getDb } from "../lib/webDb.js";
 
 // Transport per #27: Astro Actions, not hand-rolled REST routes — typed
@@ -296,7 +301,7 @@ export const server = {
       handler: ({ name }) => {
         const db = getDb();
         setStaple(db, name);
-        return { staples: fetchStaples(db) };
+        return { staples: fetchStaples(db), nonStapleNames: fetchNonStapleProductNames(db) };
       },
     }),
     unstaple: defineAction({
@@ -304,7 +309,7 @@ export const server = {
       handler: ({ name }) => {
         const db = getDb();
         unstapleDb(db, name);
-        return { staples: fetchStaples(db) };
+        return { staples: fetchStaples(db), nonStapleNames: fetchNonStapleProductNames(db) };
       },
     }),
   },

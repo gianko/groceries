@@ -1,6 +1,6 @@
 ---
 import { fetchPrefs } from "../../../src/prefs.js";
-import { fetchStaples } from "../../../src/staple.js";
+import { fetchNonStapleProductNames, fetchStaples } from "../../../src/staple.js";
 import StaplesPrefsScreen from "../components/StaplesPrefsScreen";
 import Base from "../layouts/Base.astro";
 import { getDb } from "../lib/webDb.js";
@@ -10,8 +10,9 @@ import { getDb } from "../lib/webDb.js";
 const db = getDb();
 const staples = fetchStaples(db);
 const prefs = fetchPrefs(db);
+const nonStapleNames = fetchNonStapleProductNames(db);
 ---
 
 <Base title="Staples & Prefs">
-  <StaplesPrefsScreen client:load staples={staples} prefs={prefs} />
+  <StaplesPrefsScreen client:load staples={staples} prefs={prefs} nonStapleNames={nonStapleNames} />
 </Base>

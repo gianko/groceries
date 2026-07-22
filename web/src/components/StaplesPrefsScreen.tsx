@@ -7,10 +7,12 @@ import { useToast } from "../lib/toast";
 interface Props {
   staples: Staple[];
   prefs: Prefs;
+  nonStapleNames: string[];
 }
 
-export default function StaplesPrefsScreen({ staples, prefs }: Props) {
+export default function StaplesPrefsScreen({ staples, prefs, nonStapleNames }: Props) {
   const [items, setItems] = useState(staples);
+  const [availableNames, setAvailableNames] = useState(nonStapleNames);
   const [addName, setAddName] = useState("");
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<number | null>(null);
@@ -45,6 +47,7 @@ export default function StaplesPrefsScreen({ staples, prefs }: Props) {
     }
     setNotice(null);
     setItems(data.staples);
+    setAvailableNames(data.nonStapleNames);
     setAddName("");
   }
 
@@ -58,6 +61,7 @@ export default function StaplesPrefsScreen({ staples, prefs }: Props) {
     }
     setNotice(null);
     setItems(data.staples);
+    setAvailableNames(data.nonStapleNames);
   }
 
   async function savePrefs() {
@@ -115,8 +119,14 @@ export default function StaplesPrefsScreen({ staples, prefs }: Props) {
             type="text"
             placeholder="Add a staple…"
             value={addName}
+            list="non-staple-products"
             onInput={(e) => setAddName((e.target as HTMLInputElement).value)}
           />
+          <datalist id="non-staple-products">
+            {availableNames.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
           <button type="submit" disabled={adding || addName.trim().length === 0}>
             Add
           </button>
