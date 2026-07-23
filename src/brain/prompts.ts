@@ -75,11 +75,16 @@ export function buildSuggestRecipesPrompt(input: RecipeContext): string {
     .join("\n");
 
   return [
-    "Suggest 2-3 dinner recipes for a two-person household using ONLY the Catalog names listed below",
+    "Suggest 2-3 dishes for a two-person household using ONLY the Catalog names listed below",
     "to refer to ingredients the household already has. Weight suggestions toward using up",
     'soonest-expiring items. Each recipe ingredient must carry a quantity, and "present" must be',
     "true only if the ingredient name matches a Catalog name below verbatim. Each recipe must also",
-    "include step-by-step cooking instructions as a list of short, ordered steps.",
+    "include cooking instructions written as a short, flowing prose passage a person could read",
+    "start-to-finish while cooking — not a numbered list of steps.",
+    "",
+    "If the request calls for a full meal (a main dish plus a side), suggest one of each and write",
+    "each one's instructions with awareness of the other, so their timing can be coordinated when",
+    "cooked together (e.g. what to start first, what happens while something else simmers).",
     "",
     "Catalog inventory:",
     inventoryLines || "(empty)",
@@ -92,7 +97,7 @@ export function buildSuggestRecipesPrompt(input: RecipeContext): string {
     "Missing ingredients per recipe must be capped at 3, biased toward cheap/common items.",
     "",
     JSON_ONLY_INSTRUCTION,
-    'Respond with an object: { "recipes": [ { "title": string, "ingredients": [ { "name": string, "quantity": number, "unit": string | null, "present": boolean } ], "missingCount": number } ] }',
+    'Respond with an object: { "recipes": [ { "title": string, "ingredients": [ { "name": string, "quantity": number, "unit": string | null, "present": boolean } ], "missingCount": number, "instructions": string } ] }',
   ]
     .filter((line) => line !== "")
     .join("\n");

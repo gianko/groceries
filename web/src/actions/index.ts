@@ -8,20 +8,10 @@ import {
   type CookRecipe,
   cookRecipeSchema,
   decrementForRecipe,
-  fetchFavoriteRecipes,
-  fetchFoodInventory,
-  fetchStapleNames,
   rateRecipe,
-  reclassifyRecipe,
   saveCookedRecipe,
-  tierRecipes,
 } from "../../../src/cook.js";
-import {
-  chatTurnSchema,
-  confirmCook,
-  cookSuggestionsSchema,
-  sendMessage,
-} from "../../../src/cookAgent.js";
+import { chatTurnSchema, confirmCook, sendMessage } from "../../../src/cookAgent.js";
 import { markLotStillGood } from "../../../src/digest.js";
 import {
   decideAutoRelist as decideAutoRelistDb,
@@ -30,7 +20,7 @@ import {
 } from "../../../src/finish.js";
 import { fetchLotsByIds } from "../../../src/inventory.js";
 import { addManualEntry } from "../../../src/list.js";
-import { fetchPrefs, savePrefs } from "../../../src/prefs.js";
+import { savePrefs } from "../../../src/prefs.js";
 import { applyKnownRawNames, confirmReceipt, fetchCatalogNames } from "../../../src/receipt.js";
 import { clearEntry, reconcileShoppingList } from "../../../src/reconcile.js";
 import { addCycleGuessEntry } from "../../../src/shopping.js";
@@ -107,46 +97,6 @@ export const server = {
     }),
   },
   cook: {
-    // Brain-backed phase-two fetch per #34: the page server-renders
-    // Favorites-tonight immediately, and the Preact island calls this on
-    // mount for Cook-tonight/Almost-there. A Brain failure surfaces as
-    // `available: false` rather than an Action error, so those two sections
-    // can show an inline unavailable message without blocking the screen.
-    suggestTonight: defineAction({
-      input: z.object({}),
-      handler: async () => {
-        const db = getDb();
-        const inventory = fetchFoodInventory(db, systemClock);
-        const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
-        const stapleNames = fetchStapleNames(db);
-        const favorites = fetchFavoriteRecipes(db);
-
-        try {
-          const suggestions = await getBrain().suggestRecipes({
-            inventory: inventory.map((item) => ({
-              name: item.name,
-              category: "food",
-              quantity: item.quantity,
-              unit: item.unit,
-              estExpiry: item.estExpiry,
-            })),
-            prefsBlurb: fetchPrefs(db).blurb,
-            favoriteRecipeNames: favorites.map((f) => f.title),
-          });
-          const classified = suggestions.map((recipe) =>
-            reclassifyRecipe(recipe, inventoryNames, stapleNames),
-          );
-          const { cookTonight, almostThere } = tierRecipes(classified);
-          return { available: true as const, cookTonight, almostThere };
-        } catch (err) {
-          if (err instanceof BrainUnavailableError) {
-            console.error("Brain unavailable", err.cause ?? err);
-            return { available: false as const };
-          }
-          throw err;
-        }
-      },
-    }),
     // Atomically decrements matched Lots then saves the cooked-recipe row,
     // unconditionally, in that order — matching COOKING_THIS_CALLBACK in
     // bot.ts. Idempotency is a client-side lockout (disable-on-tap) per #34,
@@ -186,24 +136,15 @@ export const server = {
       input: z.object({ recipeId: z.number().int(), rating: z.enum(["up", "down"]) }),
       handler: ({ recipeId, rating }) => ({ rated: rateRecipe(getDb(), recipeId, rating) }),
     }),
-    // Cook-agent chat per #50: the client holds ChatTurn[] history itself
-    // (reset on page load, no server session) and resends the full history
-    // each call. `loadedSuggestions` is whatever Cook-tonight/Almost-there
-    // tiers the screen already loaded on mount, so the suggestRecipes tool
-    // can reuse them instead of a fresh Brain call.
+    // Cook-agent chat: the client holds ChatTurn[] history itself (reset on
+    // page load, no server session) and resends the full history each call.
     chatSend: defineAction({
       input: z.object({
         history: z.array(chatTurnSchema),
         message: z.string().min(1),
-        loadedSuggestions: cookSuggestionsSchema.nullable(),
       }),
-      handler: ({ history, message, loadedSuggestions }) =>
-        sendMessage(history, message, {
-          db: getDb(),
-          brain: getBrain(),
-          clock: systemClock,
-          loadedSuggestions,
-        }),
+      handler: ({ history, message }) =>
+        sendMessage(history, message, { db: getDb(), brain: getBrain(), clock: systemClock }),
     }),
     // The only call that's allowed to execute a pending commitCook tool call
     // — history's last turn must be that toolCall (enforced in
@@ -212,12 +153,7 @@ export const server = {
     chatConfirm: defineAction({
       input: z.object({ history: z.array(chatTurnSchema) }),
       handler: ({ history }) =>
-        confirmCook(history, {
-          db: getDb(),
-          brain: getBrain(),
-          clock: systemClock,
-          loadedSuggestions: null,
-        }),
+        confirmCook(history, { db: getDb(), brain: getBrain(), clock: systemClock }),
     }),
   },
   receipt: {

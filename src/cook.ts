@@ -59,8 +59,10 @@ export interface CookRecipe {
   ingredients: CookIngredient[];
   missingCount: number;
   // null only for a favorite whose most-recently-cooked row predates this
-  // field (or was never re-cooked since) — see fetchFavoriteRecipes.
-  instructions: string[] | null;
+  // field (or was never re-cooked since) — see fetchFavoriteRecipes. A
+  // flowing prose narrative meant to be read start-to-finish while cooking,
+  // not a step list.
+  instructions: string | null;
 }
 
 // The shared wire shape for a CookRecipe: the web Actions layer (cook.commit)
@@ -77,8 +79,44 @@ export const cookRecipeSchema = z.object({
   title: z.string(),
   ingredients: z.array(cookIngredientSchema),
   missingCount: z.number().int().nonnegative(),
-  instructions: z.array(z.string()).nullable(),
+  instructions: z.string().nullable(),
 });
+
+// A meal is one main dish, optionally paired with a side — the shape the
+// cook-agent's commitCook tool proposes and confirmCook commits. Main and
+// side are committed together (one decrement, one confirm tap) but saved and
+// rated as two independent recipe rows: rating is per-dish, not per-meal.
+export interface CookMeal {
+  main: CookRecipe;
+  side: CookRecipe | null;
+}
+
+export const cookMealSchema = z.object({
+  main: cookRecipeSchema,
+  side: cookRecipeSchema.nullable(),
+});
+
+export function mealTitle(meal: CookMeal): string {
+  return meal.side ? `${meal.main.title} + ${meal.side.title}` : meal.main.title;
+}
+
+export function mealIngredients(meal: CookMeal): CookIngredient[] {
+  return meal.side ? [...meal.main.ingredients, ...meal.side.ingredients] : meal.main.ingredients;
+}
+
+// The two dishes' prose narratives read back-to-back as one flowing passage
+// rather than two separately-labeled sections — each is already written to
+// be read start-to-finish, so concatenation reads naturally enough without
+// needing a dedicated combined-narrative field from the Brain.
+export function mealNarrative(meal: CookMeal): string | null {
+  if (!meal.side) {
+    return meal.main.instructions;
+  }
+  const parts = [meal.main.instructions, meal.side.instructions].filter(
+    (s): s is string => s !== null,
+  );
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
 
 // The Brain is told to reference in-stock ingredients verbatim by Catalog
 // name; this is the backstop. Any ingredient the Brain marked "present" that
@@ -89,7 +127,7 @@ export const cookRecipeSchema = z.object({
 // whether they even appear in the inventory list (per CONTEXT.md, a Staple
 // can exist with zero Stock Lots).
 export function reclassifyRecipe(
-  recipe: Omit<RecipeSuggestion, "instructions"> & { instructions: string[] | null },
+  recipe: Omit<RecipeSuggestion, "instructions"> & { instructions: string | null },
   inventoryNames: ReadonlySet<string>,
   stapleNames: ReadonlySet<string>,
 ): CookRecipe {
@@ -119,38 +157,6 @@ export function fetchStapleNames(db: Db): Set<string> {
     .where(eq(products.isStaple, true))
     .all();
   return new Set(rows.map((r) => r.name.toLowerCase()));
-}
-
-export interface CookSuggestions {
-  cookTonight: CookRecipe[];
-  almostThere: CookRecipe[];
-}
-
-// Only the two tiers the feature promises are shown: a recipe reclassified
-// to more than 3 actual missing ingredients fits neither, so it's dropped.
-export function tierRecipes(recipes: CookRecipe[]): CookSuggestions {
-  return {
-    cookTonight: recipes.filter((r) => r.missingCount === 0),
-    almostThere: recipes.filter((r) => r.missingCount > 0 && r.missingCount <= 3),
-  };
-}
-
-export function renderCookTonight(recipes: CookRecipe[]): string {
-  if (recipes.length === 0) {
-    return "🍳 Nothing fully in stock for tonight.";
-  }
-  const lines = recipes.map((r) => `• ${r.title}`);
-  return ["🍳 Cook tonight", ...lines].join("\n");
-}
-
-function formatQuantity(quantity: number, unit: string | null): string {
-  return unit ? `${quantity} ${unit}` : `${quantity}`;
-}
-
-export function renderAlmostThereRecipe(recipe: CookRecipe): string {
-  const missing = recipe.ingredients.filter((i) => !i.present);
-  const lines = missing.map((i) => `• ${i.name} (${formatQuantity(i.quantity, i.unit)})`);
-  return [`🥘 ${recipe.title}`, `Missing ${missing.length}:`, ...lines].join("\n");
 }
 
 // A guessed leftover is worse than asking: below this fraction of a Lot's
@@ -341,7 +347,7 @@ export interface SavedRecipeIngredient {
 export interface FavoriteRecipe {
   title: string;
   ingredients: SavedRecipeIngredient[];
-  instructions: string[] | null;
+  instructions: string | null;
 }
 
 // One row per "cooking this" tap, the recipe as actually cooked. Rating
@@ -410,29 +416,31 @@ export function fetchFavoriteRecipes(db: Db): FavoriteRecipe[] {
     }));
 }
 
-// The deterministic favorites-first pass: a liked recipe is only surfaced
-// when it's fully coverable by current inventory via the same exact
-// (case-insensitive) Product-name match reclassifyRecipe uses, Staples
-// exempt. A favorite short even one ingredient is dropped here entirely —
-// per the ticket, it must not pre-empt the LLM pass, and there's no
-// Almost-there tier for favorites.
-export function fetchCoverableFavorites(
-  favorites: FavoriteRecipe[],
-  inventoryNames: ReadonlySet<string>,
-  stapleNames: ReadonlySet<string>,
-): CookRecipe[] {
-  return favorites
-    .map((favorite) =>
-      reclassifyRecipe(
-        {
-          title: favorite.title,
-          ingredients: favorite.ingredients.map((i) => ({ ...i, present: true })),
-          missingCount: 0,
-          instructions: favorite.instructions,
-        },
-        inventoryNames,
-        stapleNames,
-      ),
-    )
-    .filter((recipe) => recipe.missingCount === 0);
+// Committing a meal decrements both dishes' ingredients in one go — each
+// recipe's own decrementForRecipe call stays its own atomic transaction, but
+// the results merge into one report since the user only sees one "cooking
+// this" event.
+export function decrementForMeal(db: Db, meal: CookMeal): CookDecrementResult {
+  const main = decrementForRecipe(db, meal.main);
+  if (!meal.side) {
+    return main;
+  }
+  const side = decrementForRecipe(db, meal.side);
+  return {
+    decremented: [...main.decremented, ...side.decremented],
+    finishConfirmations: [...main.finishConfirmations, ...side.finishConfirmations],
+  };
+}
+
+export interface SavedMeal {
+  mainId: number;
+  sideId: number | null;
+}
+
+// Two independent recipe rows, per-dish — rating (and any future re-cook)
+// reasons about main and side separately, so there's no meal_id linking them.
+export function saveCookedMeal(db: Db, clock: Clock, meal: CookMeal): SavedMeal {
+  const mainId = saveCookedRecipe(db, clock, meal.main);
+  const sideId = meal.side ? saveCookedRecipe(db, clock, meal.side) : null;
+  return { mainId, sideId };
 }

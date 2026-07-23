@@ -73,7 +73,7 @@ export class FakeBrain implements Brain {
           ? [{ name: first.name, quantity: first.quantity, unit: first.unit, present: true }]
           : [],
         missingCount: 0,
-        instructions: ["Preheat oven.", "Combine ingredients.", "Bake for 20 minutes."],
+        instructions: "Preheat the oven, combine the ingredients, then bake for 20 minutes.",
       },
     ];
   }

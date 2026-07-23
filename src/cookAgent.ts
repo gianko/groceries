@@ -10,23 +10,23 @@ import type { Clock } from "./clock.js";
 import {
   addMissingIngredients,
   type CookIngredient,
+  type CookMeal,
   type CookRecipe,
-  type CookSuggestions,
-  cookRecipeSchema,
-  decrementForRecipe,
+  cookMealSchema,
+  decrementForMeal,
   type FinishConfirmationLot,
   fetchFavoriteRecipes,
   fetchFoodInventory,
   fetchStapleNames,
+  mealTitle,
   rateRecipe as rateRecipeDb,
   reclassifyRecipe,
-  saveCookedRecipe,
-  tierRecipes,
+  saveCookedMeal,
 } from "./cook.js";
 import type { Db } from "./db.js";
 import { fetchPrefs } from "./prefs.js";
 
-// The cook-agent tool table per #50: read-only tools (suggestRecipes,
+// The cook-agent tool table: read-only tools (suggestRecipes,
 // checkInventory, fetchFavorites) and immediate-write tools
 // (addToShoppingList, rateRecipe) execute the instant the model calls them
 // and the loop just keeps going. commitCook is the one Stock-Lot mutation on
@@ -35,14 +35,13 @@ import { fetchPrefs } from "./prefs.js";
 const SUGGEST_RECIPES_TOOL: ChatTool = {
   name: "suggestRecipes",
   description:
-    'Suggest recipes the household could cook tonight, tiered by how many ingredients are missing. Reuses whatever suggestions are already loaded unless `constraint` describes something they weren\'t computed against (e.g. "something with the chicken that\'s expiring", "nothing with nuts") — pass constraint only in that case.',
+    'Suggest dishes the household could cook, given current inventory. Use `constraint` to say what\'s wanted (e.g. "lunch for 2", "a full meal with a main and a side", "something with the chicken that\'s expiring", "nothing with nuts"). When the user wants a full meal, ask for one main and one side in the constraint so both come back together.',
   parameters: {
     type: "object",
     properties: {
       constraint: {
         type: "string",
-        description:
-          "A requirement the already-loaded suggestions don't account for. Omit otherwise.",
+        description: "What's wanted — occasion, servings, a full meal vs. one dish, exclusions.",
       },
     },
   },
@@ -92,7 +91,7 @@ const RATE_RECIPE_TOOL: ChatTool = {
 // function-calling API needs plain JSON Schema, not a Zod schema, and this
 // repo has no zod-to-json-schema dependency. Keep this in sync with
 // cookRecipeSchema (src/cook.ts) by hand if CookRecipe's shape changes —
-// cookRecipeSchema.parse() below is still what actually validates the args.
+// cookMealSchema.parse() below is still what actually validates the args.
 const RECIPE_SCHEMA_PROPERTIES = {
   title: { type: "string" },
   ingredients: {
@@ -109,23 +108,26 @@ const RECIPE_SCHEMA_PROPERTIES = {
     },
   },
   missingCount: { type: "number" },
-  instructions: { type: "array", items: { type: "string" }, nullable: true },
+  instructions: { type: "string", nullable: true },
+};
+
+const RECIPE_JSON_SCHEMA = {
+  type: "object",
+  properties: RECIPE_SCHEMA_PROPERTIES,
+  required: ["title", "ingredients", "missingCount"],
 };
 
 const COMMIT_COOK_TOOL: ChatTool = {
   name: "commitCook",
   description:
-    "Propose cooking a recipe. This DECREMENTS STOCK, so calling it only proposes the action — the user must tap an explicit confirm affordance before anything is written. Pass the exact recipe object as previously surfaced by suggestRecipes or fetchFavorites.",
+    "Propose cooking a meal: one main dish, optionally with a side. This DECREMENTS STOCK, so calling it only proposes the action — the user must tap an explicit confirm affordance before anything is written. Pass the exact recipe object(s) as previously surfaced by suggestRecipes or fetchFavorites.",
   parameters: {
     type: "object",
     properties: {
-      recipe: {
-        type: "object",
-        properties: RECIPE_SCHEMA_PROPERTIES,
-        required: ["title", "ingredients", "missingCount"],
-      },
+      main: RECIPE_JSON_SCHEMA,
+      side: RECIPE_JSON_SCHEMA,
     },
-    required: ["recipe"],
+    required: ["main"],
   },
 };
 
@@ -144,7 +146,7 @@ const MAX_STEPS = 6;
 
 export type ChatAttachment =
   | { type: "recipe"; recipe: CookRecipe }
-  | { type: "confirmCook"; recipe: CookRecipe }
+  | { type: "confirmCook"; meal: CookMeal }
   | { type: "finishChecklist"; recipeId: number; lots: FinishConfirmationLot[] };
 
 export interface ChatAgentResult {
@@ -165,20 +167,10 @@ export const chatTurnSchema = z.discriminatedUnion("role", [
   z.object({ role: z.literal("toolResult"), name: z.string(), result: z.unknown() }),
 ]);
 
-export const cookSuggestionsSchema = z.object({
-  cookTonight: z.array(cookRecipeSchema),
-  almostThere: z.array(cookRecipeSchema),
-});
-
 export interface CookAgentDeps {
   db: Db;
   brain: Brain;
   clock: Clock;
-  // Whatever tiered suggestions the cook screen already loaded on mount, or
-  // null if that load hadn't resolved (or failed) — the suggestRecipes tool
-  // reuses this instead of issuing a fresh Brain call unless the user's
-  // message carries a constraint it wasn't computed against.
-  loadedSuggestions: CookSuggestions | null;
 }
 
 export async function sendMessage(
@@ -203,20 +195,28 @@ export async function confirmCook(
     throw new Error("confirmCook: history does not end with a pending commitCook tool call");
   }
 
-  const recipe = cookRecipeSchema.parse(last.call.args.recipe);
-  const result = decrementForRecipe(deps.db, recipe);
-  const recipeId = saveCookedRecipe(deps.db, deps.clock, recipe);
+  const meal = cookMealSchema.parse({
+    main: last.call.args.main,
+    side: last.call.args.side ?? null,
+  });
+  const result = decrementForMeal(deps.db, meal);
+  const saved = saveCookedMeal(deps.db, deps.clock, meal);
 
   const attachments: ChatAttachment[] = [];
   if (result.finishConfirmations.length > 0) {
-    attachments.push({ type: "finishChecklist", recipeId, lots: result.finishConfirmations });
+    attachments.push({
+      type: "finishChecklist",
+      recipeId: saved.mainId,
+      lots: result.finishConfirmations,
+    });
   }
 
   const toolResult: ChatTurn = {
     role: "toolResult",
     name: "commitCook",
     result: {
-      recipeId,
+      mainId: saved.mainId,
+      sideId: saved.sideId,
       decremented: result.decremented,
       finishConfirmations: result.finishConfirmations,
     },
@@ -255,11 +255,14 @@ async function runLoop(
     turns = [...turns, turn];
 
     if (turn.call.name === "commitCook") {
-      const recipe = cookRecipeSchema.parse(turn.call.args.recipe);
-      attachments.push({ type: "confirmCook", recipe });
+      const meal = cookMealSchema.parse({
+        main: turn.call.args.main,
+        side: turn.call.args.side ?? null,
+      });
+      attachments.push({ type: "confirmCook", meal });
       return {
         history: turns,
-        reply: `Ready to cook "${recipe.title}"? Tap confirm to update stock.`,
+        reply: `Ready to cook "${mealTitle(meal)}"? Tap confirm to update stock.`,
         attachments,
       };
     }
@@ -314,43 +317,33 @@ function summarize(recipe: CookRecipe) {
 async function toolSuggestRecipes(args: Record<string, unknown>, deps: CookAgentDeps) {
   const constraint = typeof args.constraint === "string" ? args.constraint.trim() : "";
 
-  let suggestions: CookSuggestions;
-  if (!constraint && deps.loadedSuggestions) {
-    suggestions = deps.loadedSuggestions;
-  } else {
-    const inventory = fetchFoodInventory(deps.db, deps.clock);
-    const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
-    const stapleNames = fetchStapleNames(deps.db);
-    const favorites = fetchFavoriteRecipes(deps.db);
-    const prefs = fetchPrefs(deps.db);
-    const prefsBlurb = constraint
-      ? [prefs.blurb, `Tonight's constraint: ${constraint}`].filter(Boolean).join("\n")
-      : prefs.blurb;
+  const inventory = fetchFoodInventory(deps.db, deps.clock);
+  const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
+  const stapleNames = fetchStapleNames(deps.db);
+  const favorites = fetchFavoriteRecipes(deps.db);
+  const prefs = fetchPrefs(deps.db);
+  const prefsBlurb = constraint
+    ? [prefs.blurb, `Request: ${constraint}`].filter(Boolean).join("\n")
+    : prefs.blurb;
 
-    const raw = await deps.brain.suggestRecipes({
-      inventory: inventory.map((item) => ({
-        name: item.name,
-        category: "food",
-        quantity: item.quantity,
-        unit: item.unit,
-        estExpiry: item.estExpiry,
-      })),
-      prefsBlurb,
-      favoriteRecipeNames: favorites.map((f) => f.title),
-    });
-    const classified = raw.map((recipe) => reclassifyRecipe(recipe, inventoryNames, stapleNames));
-    suggestions = tierRecipes(classified);
-  }
+  const raw = await deps.brain.suggestRecipes({
+    inventory: inventory.map((item) => ({
+      name: item.name,
+      category: "food",
+      quantity: item.quantity,
+      unit: item.unit,
+      estExpiry: item.estExpiry,
+    })),
+    prefsBlurb,
+    favoriteRecipeNames: favorites.map((f) => f.title),
+  });
+  const recipes = raw.map((recipe) => reclassifyRecipe(recipe, inventoryNames, stapleNames));
 
-  const recipes = [...suggestions.cookTonight, ...suggestions.almostThere];
   return {
     toolResult: {
       role: "toolResult" as const,
       name: "suggestRecipes",
-      result: {
-        cookTonight: suggestions.cookTonight.map(summarize),
-        almostThere: suggestions.almostThere.map(summarize),
-      },
+      result: { recipes: recipes.map(summarize) },
     },
     resultAttachments: recipes.map((recipe) => ({ type: "recipe", recipe }) as const),
   };

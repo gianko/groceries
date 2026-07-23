@@ -1,46 +1,8 @@
 ---
-import { systemClock } from "../../../src/clock.js";
-import {
-  fetchCoverableFavorites,
-  fetchFavoriteRecipes,
-  fetchFoodInventory,
-  fetchStapleNames,
-  reclassifyRecipe,
-} from "../../../src/cook.js";
 import CookScreen from "../components/CookScreen";
 import Base from "../layouts/Base.astro";
-import { getDb } from "../lib/webDb.js";
-
-// Two-phase per #34: the deterministic favorites-first pass server-renders
-// immediately (fetchCoverableFavorites/fetchFavoriteRecipes are plain DB
-// reads, same cost class as #27/#30). Cook-tonight/Almost-there need a live
-// Brain call, so they're left to the Preact island's post-mount fetch.
-const db = getDb();
-const inventory = fetchFoodInventory(db, systemClock);
-const inventoryNames = new Set(inventory.map((item) => item.name.toLowerCase()));
-const stapleNames = fetchStapleNames(db);
-const favorites = fetchFavoriteRecipes(db);
-
-const favoritesTonight = fetchCoverableFavorites(favorites, inventoryNames, stapleNames);
-
-// The full favorites-browsing list, every favorite reclassified against
-// current inventory (not just the coverable-only boolean) so the "why isn't
-// this coverable tonight" missing-ingredients list can render — shipped in
-// this same server render per #34, not a lazy fetch.
-const allFavorites = favorites.map((favorite) =>
-  reclassifyRecipe(
-    {
-      title: favorite.title,
-      ingredients: favorite.ingredients.map((i) => ({ ...i, present: true })),
-      missingCount: 0,
-      instructions: favorite.instructions,
-    },
-    inventoryNames,
-    stapleNames,
-  ),
-);
 ---
 
 <Base title="Cook">
-  <CookScreen client:load favoritesTonight={favoritesTonight} allFavorites={allFavorites} />
+  <CookScreen client:load />
 </Base>

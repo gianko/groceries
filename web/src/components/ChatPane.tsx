@@ -1,13 +1,20 @@
 import { actions } from "astro:actions";
 import { useState } from "preact/hooks";
 import type { ChatTurn } from "../../../src/brain.js";
-import type { CookRecipe, CookSuggestions, FinishConfirmationLot } from "../../../src/cook.js";
+import {
+  type CookMeal,
+  type CookRecipe,
+  type FinishConfirmationLot,
+  mealTitle,
+} from "../../../src/cook.js";
 import FinishChecklist from "./FinishChecklist";
+import MealModal from "./MealModal";
 import RecipeCard from "./RecipeCard";
+import RecipeModal from "./RecipeModal";
 
 type Attachment =
   | { type: "recipe"; recipe: CookRecipe }
-  | { type: "confirmCook"; recipe: CookRecipe }
+  | { type: "confirmCook"; meal: CookMeal }
   | { type: "finishChecklist"; recipeId: number; lots: FinishConfirmationLot[] };
 
 interface AgentResult {
@@ -22,24 +29,17 @@ interface DisplayMessage {
   attachments: Attachment[];
 }
 
-interface Props {
-  // Whatever Cook-tonight/Almost-there tiers CookScreen already loaded on
-  // mount, or null while that's still loading/unavailable — the
-  // suggestRecipes tool reuses this instead of a fresh Brain call unless the
-  // user's message states a constraint it wasn't computed against (#50).
-  loadedSuggestions: CookSuggestions | null;
-  onOpenRecipe: (recipe: CookRecipe) => void;
-}
-
-// Collapsed by default behind a floating affordance, per #50 — history lives
-// only in this component's state, so it resets on every page load.
-export default function ChatPane({ loadedSuggestions, onOpenRecipe }: Props) {
-  const [open, setOpen] = useState(false);
+// The whole /cook screen: a full-page chat, no auto-loaded suggestions and
+// no floating-sheet toggle — asking the agent is the only way in. History
+// lives only in this component's state, so it resets on every page load.
+export default function ChatPane() {
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [awaitingConfirm, setAwaitingConfirm] = useState(false);
+  const [openRecipe, setOpenRecipe] = useState<CookRecipe | null>(null);
+  const [openMeal, setOpenMeal] = useState<CookMeal | null>(null);
 
   function applyResult(data: AgentResult) {
     setHistory(data.history);
@@ -59,11 +59,7 @@ export default function ChatPane({ loadedSuggestions, onOpenRecipe }: Props) {
     setInput("");
     setMessages((prev) => [...prev, { role: "user", text, attachments: [] }]);
     setSending(true);
-    const { data, error } = await actions.cook.chatSend({
-      history,
-      message: text,
-      loadedSuggestions,
-    });
+    const { data, error } = await actions.cook.chatSend({ history, message: text });
     setSending(false);
     if (error || !data) {
       setMessages((prev) => [
@@ -83,6 +79,7 @@ export default function ChatPane({ loadedSuggestions, onOpenRecipe }: Props) {
     const { data, error } = await actions.cook.chatConfirm({ history });
     setSending(false);
     setAwaitingConfirm(false);
+    setOpenMeal(null);
     if (error || !data) {
       setMessages((prev) => [
         ...prev,
@@ -94,103 +91,81 @@ export default function ChatPane({ loadedSuggestions, onOpenRecipe }: Props) {
   }
 
   return (
-    <>
-      {!open && (
-        <button
-          type="button"
-          class="chat-fab"
-          onClick={() => setOpen(true)}
-          aria-label="Open cook agent chat"
-        >
-          💬
-        </button>
-      )}
-
-      {open && (
-        <div class="sheet-scrim">
-          <button
-            type="button"
-            class="sheet-backdrop"
-            onClick={() => setOpen(false)}
-            aria-label="Close cook agent chat"
-          />
-          <div class="sheet chat-pane">
-            <div class="chat-header">
-              <span>💬 Cook agent</span>
-              <button
-                type="button"
-                class="chat-close"
-                onClick={() => setOpen(false)}
-                aria-label="Close cook agent chat"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div class="chat-log">
-              {messages.length === 0 && (
-                <p class="empty-state">
-                  Ask what to cook, what's in stock or expiring, or your favorites.
-                </p>
-              )}
-              {messages.map((msg, i) => (
-                <div class={`chat-msg ${msg.role}`} key={i}>
-                  <div class="chat-bubble">{msg.text}</div>
-                  {msg.attachments.map((attachment, j) => (
-                    <div class="chat-attachment" key={j}>
-                      {attachment.type === "recipe" && (
-                        <ul class="recipe-list">
-                          <li>
-                            <RecipeCard
-                              recipe={attachment.recipe}
-                              showMissing
-                              onOpen={onOpenRecipe}
-                            />
-                          </li>
-                        </ul>
-                      )}
-                      {attachment.type === "confirmCook" && (
-                        <button
-                          type="button"
-                          class="primary-btn"
-                          disabled={sending}
-                          onClick={confirmCook}
-                        >
-                          {sending ? "Cooking…" : `Confirm cook "${attachment.recipe.title}"`}
-                        </button>
-                      )}
-                      {attachment.type === "finishChecklist" && (
-                        <FinishChecklist lots={attachment.lots} />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-
-            <form class="chat-input-bar" onSubmit={submitMessage}>
-              <input
-                type="text"
-                value={input}
-                disabled={sending || awaitingConfirm}
-                placeholder={
-                  awaitingConfirm
-                    ? "Confirm the cook above to continue…"
-                    : "Message the cook agent…"
-                }
-                onInput={(e) => setInput((e.target as HTMLInputElement).value)}
-              />
-              <button
-                type="submit"
-                disabled={sending || awaitingConfirm || input.trim().length === 0}
-                aria-label="Send"
-              >
-                ↑
-              </button>
-            </form>
+    <div class="chat-screen">
+      <div class="chat-log">
+        {messages.length === 0 && (
+          <p class="empty-state">
+            Ask what to cook — "what can I make for lunch for 2?" or "a full meal with a side
+            tonight."
+          </p>
+        )}
+        {messages.map((msg, i) => (
+          <div class={`chat-msg ${msg.role}`} key={i}>
+            <div class="chat-bubble">{msg.text}</div>
+            {msg.attachments.map((attachment, j) => (
+              <div class="chat-attachment" key={j}>
+                {attachment.type === "recipe" && (
+                  <ul class="recipe-list">
+                    <li>
+                      <RecipeCard recipe={attachment.recipe} showMissing onOpen={setOpenRecipe} />
+                    </li>
+                  </ul>
+                )}
+                {attachment.type === "confirmCook" && (
+                  <ul class="recipe-list">
+                    <li>
+                      <button
+                        type="button"
+                        class="recipe-row"
+                        onClick={() => setOpenMeal(attachment.meal)}
+                      >
+                        <span class="recipe-icon">🍽️</span>
+                        <span class="recipe-main">
+                          <span class="recipe-title">{mealTitle(attachment.meal)}</span>
+                          <span class="recipe-sub">Tap to review and confirm</span>
+                        </span>
+                        <span class="recipe-chev">→</span>
+                      </button>
+                    </li>
+                  </ul>
+                )}
+                {attachment.type === "finishChecklist" && (
+                  <FinishChecklist lots={attachment.lots} />
+                )}
+              </div>
+            ))}
           </div>
-        </div>
+        ))}
+      </div>
+
+      <form class="chat-input-bar" onSubmit={submitMessage}>
+        <input
+          type="text"
+          value={input}
+          disabled={sending || awaitingConfirm}
+          placeholder={
+            awaitingConfirm ? "Confirm the cook above to continue…" : "Ask the cook agent…"
+          }
+          onInput={(e) => setInput((e.target as HTMLInputElement).value)}
+        />
+        <button
+          type="submit"
+          disabled={sending || awaitingConfirm || input.trim().length === 0}
+          aria-label="Send"
+        >
+          ↑
+        </button>
+      </form>
+
+      {openRecipe && <RecipeModal recipe={openRecipe} onClose={() => setOpenRecipe(null)} />}
+      {openMeal && (
+        <MealModal
+          meal={openMeal}
+          sending={sending}
+          onConfirm={confirmCook}
+          onClose={() => setOpenMeal(null)}
+        />
       )}
-    </>
+    </div>
   );
 }

@@ -31,43 +31,46 @@ function seedLot(db: Db, productId: number, quantity = 10): number {
   return lot!.id;
 }
 
-function makeDeps(
-  brain: BrainFake,
-  db: Db,
-  loadedSuggestions: CookAgentDeps["loadedSuggestions"] = null,
-): CookAgentDeps {
-  return { db, brain, clock: new FakeClock(new Date("2026-07-01T00:00:00Z")), loadedSuggestions };
+function makeDeps(brain: BrainFake, db: Db): CookAgentDeps {
+  return { db, brain, clock: new FakeClock(new Date("2026-07-01T00:00:00Z")) };
 }
 
 describe("sendMessage", () => {
-  it("reuses loaded suggestions when the model calls suggestRecipes with no constraint", async () => {
+  it("calls the Brain for suggestions and attaches each recipe returned", async () => {
     const db = createDb();
     const brain = new BrainFake();
-    const loaded = {
-      cookTonight: [
-        {
-          title: "Pasta bake",
-          ingredients: [{ name: "Pasta", quantity: 1, unit: null, present: true }],
-          missingCount: 0,
-          instructions: ["Boil", "Bake"],
-        },
-      ],
-      almostThere: [],
-    };
-
     brain.scriptConverse(
       ok<ChatTurn>({ role: "toolCall", call: { name: "suggestRecipes", args: {} } }),
       ok<ChatTurn>({ role: "model", text: "How about Pasta bake?" }),
     );
+    brain.scriptSuggestRecipes(
+      ok([
+        {
+          title: "Pasta bake",
+          ingredients: [{ name: "Pasta", quantity: 1, unit: null, present: true }],
+          missingCount: 0,
+          instructions: "Boil, then bake.",
+        },
+      ]),
+    );
 
-    const result = await sendMessage([], "what should I cook?", makeDeps(brain, db, loaded));
+    const result = await sendMessage([], "what should I cook?", makeDeps(brain, db));
 
     expect(result.reply).toBe("How about Pasta bake?");
-    expect(result.attachments).toEqual([{ type: "recipe", recipe: loaded.cookTonight[0] }]);
-    expect(brain.calls.filter((c) => c.method === "suggestRecipes")).toHaveLength(0);
+    expect(result.attachments).toEqual([
+      {
+        type: "recipe",
+        recipe: {
+          title: "Pasta bake",
+          ingredients: [{ name: "Pasta", quantity: 1, unit: null, present: false }],
+          missingCount: 1,
+          instructions: "Boil, then bake.",
+        },
+      },
+    ]);
   });
 
-  it("calls the Brain fresh when a constraint is given", async () => {
+  it("passes a constraint through to the Brain call", async () => {
     const db = createDb();
     const brain = new BrainFake();
     brain.scriptConverse(
@@ -83,7 +86,7 @@ describe("sendMessage", () => {
           title: "Chicken stir-fry",
           ingredients: [{ name: "Chicken", quantity: 1, unit: null, present: true }],
           missingCount: 0,
-          instructions: ["Fry it"],
+          instructions: "Fry it.",
         },
       ]),
     );
@@ -91,7 +94,7 @@ describe("sendMessage", () => {
     const result = await sendMessage(
       [],
       "something with the chicken that's expiring",
-      makeDeps(brain, db, { cookTonight: [], almostThere: [] }),
+      makeDeps(brain, db),
     );
 
     expect(result.reply).toBe("Try chicken stir-fry.");
@@ -117,7 +120,7 @@ describe("sendMessage", () => {
   it("rates a recipe immediately, with no confirm step", async () => {
     const db = createDb();
     db.run(
-      `insert into recipes (title, ingredients, instructions, created_at) values ('Soup', '[]', '[]', '2026-01-01')`,
+      `insert into recipes (title, ingredients, instructions, created_at) values ('Soup', '[]', null, '2026-01-01')`,
     );
     const [row] = db.all<{ id: number }>(`select id from recipes where title = 'Soup'`);
     const brain = new BrainFake();
@@ -147,18 +150,45 @@ describe("sendMessage", () => {
       title: "Toast",
       ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
       missingCount: 0,
-      instructions: ["Toast it"],
+      instructions: "Toast it.",
     };
     brain.scriptConverse(
-      ok<ChatTurn>({ role: "toolCall", call: { name: "commitCook", args: { recipe } } }),
+      ok<ChatTurn>({ role: "toolCall", call: { name: "commitCook", args: { main: recipe } } }),
     );
 
     const result = await sendMessage([], "cook the toast", makeDeps(brain, db));
 
-    expect(result.attachments).toEqual([{ type: "confirmCook", recipe }]);
+    expect(result.attachments).toEqual([
+      { type: "confirmCook", meal: { main: recipe, side: null } },
+    ]);
     expect(result.reply).toContain("Toast");
     const lot = db.select().from(stockLots).all()[0];
     expect(lot?.quantity).toBe(10);
+  });
+
+  it("proposes a main+side meal together in one commitCook call", async () => {
+    const db = createDb();
+    const brain = new BrainFake();
+    const main = {
+      title: "Chicken stir-fry",
+      ingredients: [],
+      missingCount: 0,
+      instructions: "Sear the chicken.",
+    };
+    const side = {
+      title: "Steamed rice",
+      ingredients: [],
+      missingCount: 0,
+      instructions: "Steam the rice.",
+    };
+    brain.scriptConverse(
+      ok<ChatTurn>({ role: "toolCall", call: { name: "commitCook", args: { main, side } } }),
+    );
+
+    const result = await sendMessage([], "cook a full meal", makeDeps(brain, db));
+
+    expect(result.attachments).toEqual([{ type: "confirmCook", meal: { main, side } }]);
+    expect(result.reply).toContain("Chicken stir-fry + Steamed rice");
   });
 
   it("surfaces a graceful reply when the Brain is unavailable", async () => {
@@ -185,11 +215,11 @@ describe("confirmCook", () => {
       title: "Toast",
       ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
       missingCount: 0,
-      instructions: ["Toast it"],
+      instructions: "Toast it.",
     };
     const history: ChatTurn[] = [
       { role: "user", text: "cook the toast" },
-      { role: "toolCall", call: { name: "commitCook", args: { recipe } } },
+      { role: "toolCall", call: { name: "commitCook", args: { main: recipe } } },
     ];
     brain.scriptConverse(ok<ChatTurn>({ role: "model", text: "Enjoy your toast!" }));
 
@@ -198,6 +228,40 @@ describe("confirmCook", () => {
     expect(result.reply).toBe("Enjoy your toast!");
     const lot = db.select().from(stockLots).all()[0];
     expect(lot?.quantity).toBe(8);
+  });
+
+  it("decrements and saves both dishes when a side is included", async () => {
+    const db = createDb();
+    const breadId = seedProduct(db, { name: "Bread" });
+    seedLot(db, breadId, 10);
+    const riceId = seedProduct(db, { name: "Rice" });
+    seedLot(db, riceId, 1000);
+    const brain = new BrainFake();
+    const main = {
+      title: "Toast",
+      ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
+      missingCount: 0,
+      instructions: null,
+    };
+    const side = {
+      title: "Rice",
+      ingredients: [{ name: "Rice", quantity: 200, unit: null, present: true }],
+      missingCount: 0,
+      instructions: null,
+    };
+    const history: ChatTurn[] = [
+      { role: "toolCall", call: { name: "commitCook", args: { main, side } } },
+    ];
+    brain.scriptConverse(ok<ChatTurn>({ role: "model", text: "Enjoy!" }));
+
+    const result = await confirmCook(history, makeDeps(brain, db));
+
+    expect(result.reply).toBe("Enjoy!");
+    const lots = db.select().from(stockLots).all();
+    expect(lots.find((l) => l.productId === breadId)?.quantity).toBe(8);
+    expect(lots.find((l) => l.productId === riceId)?.quantity).toBe(800);
+    const rows = db.all<{ title: string }>(`select title from recipes`);
+    expect(rows.map((r) => r.title).sort()).toEqual(["Rice", "Toast"]);
   });
 
   it("attaches a finish-checklist when a lot needs finish-confirmation", async () => {
@@ -212,7 +276,7 @@ describe("confirmCook", () => {
       instructions: null,
     };
     const history: ChatTurn[] = [
-      { role: "toolCall", call: { name: "commitCook", args: { recipe } } },
+      { role: "toolCall", call: { name: "commitCook", args: { main: recipe } } },
     ];
     brain.scriptConverse(ok<ChatTurn>({ role: "model", text: "All set." }));
 

@@ -7,9 +7,8 @@ interface Props {
   onOpen: (recipe: CookRecipe) => void;
 }
 
-// The one tappable recipe row, shared between the suggestion tiers'
-// RecipeList and the cook-agent chat pane's recipe attachments — both open
-// the same detail view (RecipeModal in CookScreen.tsx), per #50.
+// The one tappable recipe row for a suggested dish surfaced in the cook
+// agent's chat — tapping opens its detail view (RecipeModal).
 export default function RecipeCard({ recipe, icon = "🍽️", showMissing = false, onOpen }: Props) {
   const missing = showMissing ? recipe.ingredients.filter((i) => !i.present) : [];
 

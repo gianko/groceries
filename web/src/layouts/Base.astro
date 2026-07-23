@@ -790,42 +790,15 @@ const { title } = Astro.props;
         font-size: 13px;
         color: var(--muted);
       }
-      .steps-list {
-        list-style: none;
+      .steps-text {
         margin: 0;
-        padding: 0;
+        padding: 16px;
         background: var(--card);
         border-radius: 12px;
-        overflow: hidden;
-      }
-      .steps-list li {
-        display: flex;
-        gap: 12px;
-        padding: 14px;
-        border-bottom: 1px solid var(--line-soft);
         font-size: 14px;
-        line-height: 1.5;
-        counter-increment: step;
-      }
-      .steps-list {
-        counter-reset: step;
-      }
-      .steps-list li:last-child {
-        border-bottom: none;
-      }
-      .steps-list li::before {
-        content: counter(step);
-        width: 24px;
-        height: 24px;
-        border-radius: 12px;
-        background: #efece4;
+        line-height: 1.6;
         color: var(--ink);
-        font-size: 12px;
-        font-weight: 700;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex: none;
+        white-space: pre-wrap;
       }
       .steps-empty {
         font-size: 13px;
@@ -1006,14 +979,7 @@ const { title } = Astro.props;
         font-weight: 400;
         box-shadow: 0 8px 20px rgba(47, 111, 237, 0.35);
       }
-      .fab-chat {
-        background: var(--ink);
-        color: #fff;
-        font-size: 24px;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-      }
-
-      /* ===== bottom sheets (pantry-add, chat pane) ===== */
+      /* ===== bottom sheets (pantry-add) ===== */
       .sheet-scrim {
         position: fixed;
         inset: 0;
@@ -1075,49 +1041,10 @@ const { title } = Astro.props;
         gap: 10px;
       }
 
-      .chat-fab {
-        position: fixed;
-        right: 20px;
-        bottom: calc(var(--nav-h) + 16px + env(safe-area-inset-bottom));
-        width: 56px;
-        height: 56px;
-        border-radius: 28px;
-        border: none;
+      .chat-screen {
         display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 8;
-        transition: transform 0.15s;
-        background: var(--ink);
-        color: #fff;
-        font-size: 24px;
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-      }
-      .chat-fab:active {
-        transform: scale(0.92);
-      }
-      .chat-pane {
-        max-height: 78%;
-        overflow: hidden;
-      }
-      .chat-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 16px 20px 12px;
-        border-bottom: 1px solid var(--line);
-        font-weight: 700;
-        font-size: 16px;
-        color: var(--ink);
-        flex: none;
-      }
-      .chat-close {
-        border: none;
-        background: none;
-        font-size: 15px;
-        color: var(--muted);
-        padding: 4px;
-        line-height: 1;
+        flex-direction: column;
+        min-height: calc(100vh - var(--nav-h) - 90px);
       }
       .chat-log {
         flex: 1;
@@ -1169,9 +1096,12 @@ const { title } = Astro.props;
         font-size: 13px;
       }
       .chat-input-bar {
+        position: sticky;
+        bottom: var(--nav-h);
         display: flex;
         gap: 8px;
-        padding: 10px 16px calc(26px + env(safe-area-inset-bottom));
+        padding: 10px 16px;
+        background: var(--bg);
         border-top: 1px solid var(--line);
         flex: none;
       }

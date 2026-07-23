@@ -2,19 +2,21 @@ import { describe, expect, it } from "vitest";
 import type { RecipeSuggestion } from "../src/brain.js";
 import {
   addMissingIngredients,
+  type CookMeal,
   type CookRecipe,
+  decrementForMeal,
   decrementForRecipe,
-  fetchCoverableFavorites,
   fetchFavoriteRecipes,
   fetchFoodInventory,
   fetchStapleNames,
+  mealIngredients,
+  mealNarrative,
+  mealTitle,
   rateRecipe,
   reclassifyRecipe,
-  renderAlmostThereRecipe,
   renderCookingThisResult,
-  renderCookTonight,
+  saveCookedMeal,
   saveCookedRecipe,
-  tierRecipes,
 } from "../src/cook.js";
 import { products, recipes, shoppingListEntries, stockLots } from "../src/db/schema.js";
 import { createDb, type Db } from "../src/db.js";
@@ -123,7 +125,7 @@ function recipe(overrides: Partial<RecipeSuggestion>): RecipeSuggestion {
     title: "Test recipe",
     ingredients: [],
     missingCount: 0,
-    instructions: [],
+    instructions: "Cook it.",
     ...overrides,
   };
 }
@@ -170,65 +172,6 @@ describe("reclassifyRecipe", () => {
     const result = reclassifyRecipe(r, new Set(["milk"]), new Set());
 
     expect(result.ingredients[0]?.present).toBe(true);
-  });
-});
-
-describe("tierRecipes", () => {
-  it("puts a fully-covered recipe in cookTonight and a <=3-missing recipe in almostThere", () => {
-    const fullyCovered = {
-      title: "Beans on toast",
-      ingredients: [{ name: "bread", quantity: 1, unit: null, present: true }],
-      missingCount: 0,
-      instructions: [],
-    };
-    const almostThere = {
-      title: "Chili",
-      ingredients: [{ name: "kidney beans", quantity: 1, unit: null, present: false }],
-      missingCount: 1,
-      instructions: [],
-    };
-    const tooManyMissing = {
-      title: "Fancy stew",
-      ingredients: [],
-      missingCount: 4,
-      instructions: [],
-    };
-
-    const tiers = tierRecipes([fullyCovered, almostThere, tooManyMissing]);
-
-    expect(tiers.cookTonight).toEqual([fullyCovered]);
-    expect(tiers.almostThere).toEqual([almostThere]);
-  });
-});
-
-describe("renderCookTonight", () => {
-  it("says nothing is fully in stock when empty", () => {
-    expect(renderCookTonight([])).toContain("Nothing fully in stock");
-  });
-
-  it("lists recipe titles", () => {
-    const text = renderCookTonight([
-      { title: "Beans on toast", ingredients: [], missingCount: 0, instructions: [] },
-    ]);
-    expect(text).toContain("Beans on toast");
-  });
-});
-
-describe("renderAlmostThereRecipe", () => {
-  it("lists only the missing ingredients with quantity", () => {
-    const text = renderAlmostThereRecipe({
-      title: "Chili",
-      ingredients: [
-        { name: "kidney beans", quantity: 1, unit: "can", present: false },
-        { name: "rice", quantity: 200, unit: "g", present: true },
-      ],
-      missingCount: 1,
-      instructions: [],
-    });
-
-    expect(text).toContain("Chili");
-    expect(text).toContain("kidney beans (1 can)");
-    expect(text).not.toContain("rice");
   });
 });
 
@@ -287,7 +230,13 @@ function seedProductLot(
 }
 
 function cookRecipe(overrides: Partial<CookRecipe>): CookRecipe {
-  return { title: "Test recipe", ingredients: [], missingCount: 0, instructions: [], ...overrides };
+  return {
+    title: "Test recipe",
+    ingredients: [],
+    missingCount: 0,
+    instructions: "Cook it.",
+    ...overrides,
+  };
 }
 
 describe("decrementForRecipe", () => {
@@ -445,7 +394,7 @@ describe("saveCookedRecipe / rateRecipe", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
-      instructions: ["Toast bread", "Add beans"],
+      instructions: "Toast bread, then add beans.",
     });
 
     const saved = db
@@ -475,7 +424,7 @@ describe("saveCookedRecipe / rateRecipe", () => {
       title: "Chili",
       ingredients: [],
       missingCount: 0,
-      instructions: [],
+      instructions: null,
     });
 
     const first = rateRecipe(db, recipeId, "up");
@@ -500,19 +449,19 @@ describe("fetchFavoriteRecipes", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
-      instructions: ["Toast bread", "Add beans"],
+      instructions: "Toast bread, then add beans.",
     });
     const dislikedId = saveCookedRecipe(db, clock, {
       title: "Fancy stew",
       ingredients: [],
       missingCount: 0,
-      instructions: [],
+      instructions: null,
     });
     saveCookedRecipe(db, clock, {
       title: "Pending verdict",
       ingredients: [],
       missingCount: 0,
-      instructions: [],
+      instructions: null,
     });
     rateRecipe(db, likedId, "up");
     rateRecipe(db, dislikedId, "down");
@@ -523,7 +472,7 @@ describe("fetchFavoriteRecipes", () => {
       {
         title: "Beans on toast",
         ingredients: [{ name: "bread", quantity: 2, unit: "slice" }],
-        instructions: ["Toast bread", "Add beans"],
+        instructions: "Toast bread, then add beans.",
       },
     ]);
   });
@@ -535,7 +484,7 @@ describe("fetchFavoriteRecipes", () => {
       title: "Chili",
       ingredients: [{ name: "kidney beans", quantity: 1, unit: "can", present: true }],
       missingCount: 0,
-      instructions: [],
+      instructions: null,
     });
     rateRecipe(db, firstCookId, "up");
 
@@ -543,7 +492,7 @@ describe("fetchFavoriteRecipes", () => {
       title: "Chili",
       ingredients: [{ name: "kidney beans", quantity: 1, unit: "can", present: true }],
       missingCount: 0,
-      instructions: [],
+      instructions: null,
     });
     rateRecipe(db, secondCookId, "down");
 
@@ -551,48 +500,111 @@ describe("fetchFavoriteRecipes", () => {
   });
 });
 
-describe("fetchCoverableFavorites", () => {
-  it("surfaces a liked favorite whose ingredients are all in inventory (staples exempt)", () => {
-    const favorites = [
-      {
-        title: "Beans on toast",
-        ingredients: [
-          { name: "bread", quantity: 2, unit: "slice" },
-          { name: "salt", quantity: 1, unit: "pinch" },
-        ],
-        instructions: ["Toast bread"],
-      },
-    ];
+function meal(overrides: Partial<CookMeal>): CookMeal {
+  return { main: cookRecipe({ title: "Main" }), side: null, ...overrides };
+}
 
-    const result = fetchCoverableFavorites(favorites, new Set(["bread"]), new Set(["salt"]));
+function twoDishMeal(): CookMeal {
+  return {
+    main: cookRecipe({
+      title: "Chicken stir-fry",
+      ingredients: [{ name: "chicken", quantity: 1, unit: "breast", present: true }],
+      instructions: "Sear the chicken.",
+    }),
+    side: cookRecipe({
+      title: "Steamed rice",
+      ingredients: [{ name: "rice", quantity: 200, unit: "g", present: true }],
+      instructions: "Steam the rice.",
+    }),
+  };
+}
 
-    expect(result).toEqual([
-      {
-        title: "Beans on toast",
-        ingredients: [
-          { name: "bread", quantity: 2, unit: "slice", present: true },
-          { name: "salt", quantity: 1, unit: "pinch", present: true },
-        ],
-        missingCount: 0,
-        instructions: ["Toast bread"],
-      },
-    ]);
+describe("mealTitle", () => {
+  it("uses just the main dish's title when there's no side", () => {
+    expect(mealTitle(meal({ main: cookRecipe({ title: "Chili" }) }))).toBe("Chili");
   });
 
-  it("drops a favorite missing even one ingredient, instead of demoting it", () => {
-    const favorites = [
-      {
+  it("joins main and side's titles when there's a side", () => {
+    expect(mealTitle(twoDishMeal())).toBe("Chicken stir-fry + Steamed rice");
+  });
+});
+
+describe("mealIngredients", () => {
+  it("uses just the main dish's ingredients when there's no side", () => {
+    const m = meal({
+      main: cookRecipe({
+        ingredients: [{ name: "kidney beans", quantity: 1, unit: "can", present: true }],
+      }),
+    });
+
+    expect(mealIngredients(m)).toEqual(m.main.ingredients);
+  });
+
+  it("combines main and side's ingredients when there's a side", () => {
+    const m = twoDishMeal();
+
+    expect(mealIngredients(m)).toEqual([...m.main.ingredients, ...m.side!.ingredients]);
+  });
+});
+
+describe("mealNarrative", () => {
+  it("uses just the main dish's narrative when there's no side", () => {
+    const m = meal({ main: cookRecipe({ instructions: "Simmer the chili." }) });
+
+    expect(mealNarrative(m)).toBe("Simmer the chili.");
+  });
+
+  it("joins main and side's narratives when there's a side", () => {
+    expect(mealNarrative(twoDishMeal())).toBe("Sear the chicken.\n\nSteam the rice.");
+  });
+});
+
+describe("decrementForMeal / saveCookedMeal", () => {
+  it("decrements both dishes' ingredients and saves each as its own recipe row", () => {
+    const db = createDb();
+    const clock = new FakeClock(new Date("2026-01-01T00:00:00Z"));
+    const mainLotId = seedProductLot(db, { name: "chicken", quantity: 4, unit: "breast" });
+    const sideLotId = seedProductLot(db, { name: "rice", quantity: 1000, unit: "g" });
+    const m: CookMeal = {
+      main: cookRecipe({
+        title: "Chicken stir-fry",
+        ingredients: [{ name: "chicken", quantity: 1, unit: "breast", present: true }],
+      }),
+      side: cookRecipe({
+        title: "Steamed rice",
+        ingredients: [{ name: "rice", quantity: 200, unit: "g", present: true }],
+      }),
+    };
+
+    const result = decrementForMeal(db, m);
+
+    expect(result.decremented).toEqual([
+      { lotId: mainLotId, productName: "chicken", before: 4, after: 3 },
+      { lotId: sideLotId, productName: "rice", before: 1000, after: 800 },
+    ]);
+
+    const saved = saveCookedMeal(db, clock, m);
+
+    expect(saved.sideId).not.toBeNull();
+    const rows = db.select().from(recipes).all();
+    expect(rows.map((r) => r.title).sort()).toEqual(["Chicken stir-fry", "Steamed rice"]);
+  });
+
+  it("only decrements and saves the main dish when there's no side", () => {
+    const db = createDb();
+    const clock = new FakeClock(new Date("2026-01-01T00:00:00Z"));
+    const m = meal({
+      main: cookRecipe({
         title: "Chili",
-        ingredients: [
-          { name: "kidney beans", quantity: 1, unit: "can" },
-          { name: "rice", quantity: 200, unit: "g" },
-        ],
-        instructions: [],
-      },
-    ];
+        ingredients: [{ name: "salt", quantity: 1, unit: "pinch", present: true }],
+      }),
+    });
 
-    const result = fetchCoverableFavorites(favorites, new Set(["rice"]), new Set());
+    const result = decrementForMeal(db, m);
+    expect(result.decremented).toEqual([]);
 
-    expect(result).toEqual([]);
+    const saved = saveCookedMeal(db, clock, m);
+    expect(saved.sideId).toBeNull();
+    expect(db.select().from(recipes).all()).toHaveLength(1);
   });
 });

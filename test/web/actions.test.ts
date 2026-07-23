@@ -172,38 +172,6 @@ describe("digest.markStillGood", () => {
   });
 });
 
-describe("cook.suggestTonight", () => {
-  it("returns tiered suggestions on a successful Brain call", async () => {
-    const productId = seedProduct({ name: "Pasta" });
-    seedLot(productId);
-    brain.scriptSuggestRecipes(
-      ok([
-        {
-          title: "Pasta bake",
-          ingredients: [{ name: "Pasta", quantity: 1, unit: null, present: true }],
-          missingCount: 0,
-          instructions: ["Boil", "Bake"],
-        },
-      ]),
-    );
-
-    const result = await call(server.cook.suggestTonight, {});
-
-    expect(result.available).toBe(true);
-    if (result.available) {
-      expect(result.cookTonight.map((r) => r.title)).toContain("Pasta bake");
-    }
-  });
-
-  it("reports unavailable instead of throwing when the Brain fails", async () => {
-    brain.scriptSuggestRecipes(fail(new BrainUnavailableError("down")));
-
-    const result = await call(server.cook.suggestTonight, {});
-
-    expect(result).toEqual({ available: false });
-  });
-});
-
 describe("cook.commit", () => {
   it("decrements matched lots and saves the recipe", async () => {
     const productId = seedProduct({ name: "Bread" });
@@ -214,7 +182,7 @@ describe("cook.commit", () => {
         title: "Toast",
         ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
         missingCount: 0,
-        instructions: ["Toast it"],
+        instructions: "Toast it.",
       },
     });
 
@@ -252,7 +220,7 @@ describe("cook.addMissing", () => {
 describe("cook.rate", () => {
   it("rates an existing recipe", async () => {
     db.run(
-      `insert into recipes (title, ingredients, instructions, created_at) values ('Soup', '[]', '[]', '2026-01-01')`,
+      `insert into recipes (title, ingredients, instructions, created_at) values ('Soup', '[]', null, '2026-01-01')`,
     );
     const [row] = db.all<{ id: number }>(`select id from recipes where title = 'Soup'`);
 
@@ -281,7 +249,6 @@ describe("cook.chatSend / cook.chatConfirm", () => {
     const result = await call(server.cook.chatSend, {
       history: [],
       message: "add garlic please",
-      loadedSuggestions: null,
     });
 
     expect(result.reply).toBe("Added garlic to the list.");
@@ -296,19 +263,20 @@ describe("cook.chatSend / cook.chatConfirm", () => {
       title: "Toast",
       ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
       missingCount: 0,
-      instructions: ["Toast it"],
+      instructions: "Toast it.",
     };
     brain.scriptConverse(
-      ok<ChatTurn>({ role: "toolCall", call: { name: "commitCook", args: { recipe } } }),
+      ok<ChatTurn>({ role: "toolCall", call: { name: "commitCook", args: { main: recipe } } }),
     );
 
     const sendResult = await call(server.cook.chatSend, {
       history: [],
       message: "cook the toast",
-      loadedSuggestions: null,
     });
 
-    expect(sendResult.attachments).toEqual([{ type: "confirmCook", recipe }]);
+    expect(sendResult.attachments).toEqual([
+      { type: "confirmCook", meal: { main: recipe, side: null } },
+    ]);
     let lot = db
       .select()
       .from(stockLots)

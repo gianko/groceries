@@ -84,9 +84,10 @@ export const recipes = sqliteTable("recipes", {
     .$type<{ name: string; quantity: number; unit: string | null }[]>()
     .notNull(),
   // Nullable: rows predating this column (or any favorite never re-cooked
-  // since) have no steps — the "Steps" tab renders an explicit fallback
-  // rather than treating that as an empty list (per #34).
-  instructions: text("instructions", { mode: "json" }).$type<string[]>(),
+  // since) have no narrative — the recipe view renders an explicit fallback
+  // rather than treating that as empty (per #34). A flowing prose passage,
+  // not a step list.
+  instructions: text("instructions"),
   rating: text("rating", { enum: ["up", "down"] }),
   createdAt: text("created_at").notNull(),
 });
