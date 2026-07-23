@@ -108,7 +108,7 @@ const RECIPE_SCHEMA_PROPERTIES = {
     },
   },
   missingCount: { type: "number" },
-  instructions: { type: "string", nullable: true },
+  instructions: { type: "array", items: { type: "string" }, nullable: true },
 };
 
 const RECIPE_JSON_SCHEMA = {

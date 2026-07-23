@@ -127,7 +127,11 @@ export default function RecipeModal({
             ) : recipe.instructions === null ? (
               <p class="steps-empty">Instructions weren't saved for this recipe.</p>
             ) : (
-              <p class="steps-text">{recipe.instructions}</p>
+              <ol class="steps-list">
+                {recipe.instructions.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
             )}
           </>
         ) : (

@@ -71,6 +71,13 @@
       "when": 1784675709353,
       "tag": "0009_drop_pendings",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1784823487848,
+      "tag": "0010_wrap_recipe_instructions_json",
+      "breakpoints": true
     }
   ]
 }

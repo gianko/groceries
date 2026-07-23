@@ -10,7 +10,7 @@ import {
   fetchFoodInventory,
   fetchStapleNames,
   mealIngredients,
-  mealNarrative,
+  mealInstructionSections,
   mealTitle,
   rateRecipe,
   reclassifyRecipe,
@@ -125,7 +125,7 @@ function recipe(overrides: Partial<RecipeSuggestion>): RecipeSuggestion {
     title: "Test recipe",
     ingredients: [],
     missingCount: 0,
-    instructions: "Cook it.",
+    instructions: ["Cook it."],
     ...overrides,
   };
 }
@@ -234,7 +234,7 @@ function cookRecipe(overrides: Partial<CookRecipe>): CookRecipe {
     title: "Test recipe",
     ingredients: [],
     missingCount: 0,
-    instructions: "Cook it.",
+    instructions: ["Cook it."],
     ...overrides,
   };
 }
@@ -394,7 +394,7 @@ describe("saveCookedRecipe / rateRecipe", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
-      instructions: "Toast bread, then add beans.",
+      instructions: ["Toast bread, then add beans."],
     });
 
     const saved = db
@@ -449,7 +449,7 @@ describe("fetchFavoriteRecipes", () => {
       title: "Beans on toast",
       ingredients: [{ name: "bread", quantity: 2, unit: "slice", present: true }],
       missingCount: 0,
-      instructions: "Toast bread, then add beans.",
+      instructions: ["Toast bread, then add beans."],
     });
     const dislikedId = saveCookedRecipe(db, clock, {
       title: "Fancy stew",
@@ -472,7 +472,7 @@ describe("fetchFavoriteRecipes", () => {
       {
         title: "Beans on toast",
         ingredients: [{ name: "bread", quantity: 2, unit: "slice" }],
-        instructions: "Toast bread, then add beans.",
+        instructions: ["Toast bread, then add beans."],
       },
     ]);
   });
@@ -509,12 +509,12 @@ function twoDishMeal(): CookMeal {
     main: cookRecipe({
       title: "Chicken stir-fry",
       ingredients: [{ name: "chicken", quantity: 1, unit: "breast", present: true }],
-      instructions: "Sear the chicken.",
+      instructions: ["Sear the chicken."],
     }),
     side: cookRecipe({
       title: "Steamed rice",
       ingredients: [{ name: "rice", quantity: 200, unit: "g", present: true }],
-      instructions: "Steam the rice.",
+      instructions: ["Steam the rice."],
     }),
   };
 }
@@ -547,15 +547,24 @@ describe("mealIngredients", () => {
   });
 });
 
-describe("mealNarrative", () => {
-  it("uses just the main dish's narrative when there's no side", () => {
-    const m = meal({ main: cookRecipe({ instructions: "Simmer the chili." }) });
+describe("mealInstructionSections", () => {
+  it("returns a single unlabeled section when there's no side", () => {
+    const m = meal({ main: cookRecipe({ title: "Chili", instructions: ["Simmer the chili."] }) });
 
-    expect(mealNarrative(m)).toBe("Simmer the chili.");
+    expect(mealInstructionSections(m)).toEqual([{ label: null, steps: ["Simmer the chili."] }]);
   });
 
-  it("joins main and side's narratives when there's a side", () => {
-    expect(mealNarrative(twoDishMeal())).toBe("Sear the chicken.\n\nSteam the rice.");
+  it("returns one labeled section per dish when there's a side", () => {
+    expect(mealInstructionSections(twoDishMeal())).toEqual([
+      { label: "Chicken stir-fry", steps: ["Sear the chicken."] },
+      { label: "Steamed rice", steps: ["Steam the rice."] },
+    ]);
+  });
+
+  it("returns null when neither dish has instructions", () => {
+    const m = meal({ main: cookRecipe({ instructions: null }) });
+
+    expect(mealInstructionSections(m)).toBeNull();
   });
 });
 

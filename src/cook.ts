@@ -59,10 +59,9 @@ export interface CookRecipe {
   ingredients: CookIngredient[];
   missingCount: number;
   // null only for a favorite whose most-recently-cooked row predates this
-  // field (or was never re-cooked since) — see fetchFavoriteRecipes. A
-  // flowing prose narrative meant to be read start-to-finish while cooking,
-  // not a step list.
-  instructions: string | null;
+  // field (or was never re-cooked since) — see fetchFavoriteRecipes.
+  // Ordered cooking steps.
+  instructions: string[] | null;
 }
 
 // The shared wire shape for a CookRecipe: the web Actions layer (cook.commit)
@@ -79,7 +78,7 @@ export const cookRecipeSchema = z.object({
   title: z.string(),
   ingredients: z.array(cookIngredientSchema),
   missingCount: z.number().int().nonnegative(),
-  instructions: z.string().nullable(),
+  instructions: z.array(z.string()).nullable(),
 });
 
 // A meal is one main dish, optionally paired with a side — the shape the
@@ -104,18 +103,28 @@ export function mealIngredients(meal: CookMeal): CookIngredient[] {
   return meal.side ? [...meal.main.ingredients, ...meal.side.ingredients] : meal.main.ingredients;
 }
 
-// The two dishes' prose narratives read back-to-back as one flowing passage
-// rather than two separately-labeled sections — each is already written to
-// be read start-to-finish, so concatenation reads naturally enough without
-// needing a dedicated combined-narrative field from the Brain.
-export function mealNarrative(meal: CookMeal): string | null {
+export interface InstructionSection {
+  // null for a single-dish meal, where there's nothing to distinguish the
+  // steps from.
+  label: string | null;
+  steps: string[];
+}
+
+// A side dish means two independently-stepped instruction sets, so each
+// gets its own labeled section rather than being run together as if they
+// were one dish's steps.
+export function mealInstructionSections(meal: CookMeal): InstructionSection[] | null {
   if (!meal.side) {
-    return meal.main.instructions;
+    return meal.main.instructions ? [{ label: null, steps: meal.main.instructions }] : null;
   }
-  const parts = [meal.main.instructions, meal.side.instructions].filter(
-    (s): s is string => s !== null,
-  );
-  return parts.length > 0 ? parts.join("\n\n") : null;
+  const sections: InstructionSection[] = [];
+  if (meal.main.instructions) {
+    sections.push({ label: meal.main.title, steps: meal.main.instructions });
+  }
+  if (meal.side.instructions) {
+    sections.push({ label: meal.side.title, steps: meal.side.instructions });
+  }
+  return sections.length > 0 ? sections : null;
 }
 
 // The Brain is told to reference in-stock ingredients verbatim by Catalog
@@ -127,7 +136,7 @@ export function mealNarrative(meal: CookMeal): string | null {
 // whether they even appear in the inventory list (per CONTEXT.md, a Staple
 // can exist with zero Stock Lots).
 export function reclassifyRecipe(
-  recipe: Omit<RecipeSuggestion, "instructions"> & { instructions: string | null },
+  recipe: Omit<RecipeSuggestion, "instructions"> & { instructions: string[] | null },
   inventoryNames: ReadonlySet<string>,
   stapleNames: ReadonlySet<string>,
 ): CookRecipe {
@@ -347,7 +356,7 @@ export interface SavedRecipeIngredient {
 export interface FavoriteRecipe {
   title: string;
   ingredients: SavedRecipeIngredient[];
-  instructions: string | null;
+  instructions: string[] | null;
 }
 
 // One row per "cooking this" tap, the recipe as actually cooked. Rating

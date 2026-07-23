@@ -182,7 +182,7 @@ describe("cook.commit", () => {
         title: "Toast",
         ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
         missingCount: 0,
-        instructions: "Toast it.",
+        instructions: ["Toast it."],
       },
     });
 
@@ -263,7 +263,7 @@ describe("cook.chatSend / cook.chatConfirm", () => {
       title: "Toast",
       ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
       missingCount: 0,
-      instructions: "Toast it.",
+      instructions: ["Toast it."],
     };
     brain.scriptConverse(
       ok<ChatTurn>({ role: "toolCall", call: { name: "commitCook", args: { main: recipe } } }),

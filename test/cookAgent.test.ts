@@ -49,7 +49,7 @@ describe("sendMessage", () => {
           title: "Pasta bake",
           ingredients: [{ name: "Pasta", quantity: 1, unit: null, present: true }],
           missingCount: 0,
-          instructions: "Boil, then bake.",
+          instructions: ["Boil, then bake."],
         },
       ]),
     );
@@ -64,7 +64,7 @@ describe("sendMessage", () => {
           title: "Pasta bake",
           ingredients: [{ name: "Pasta", quantity: 1, unit: null, present: false }],
           missingCount: 1,
-          instructions: "Boil, then bake.",
+          instructions: ["Boil, then bake."],
         },
       },
     ]);
@@ -86,7 +86,7 @@ describe("sendMessage", () => {
           title: "Chicken stir-fry",
           ingredients: [{ name: "Chicken", quantity: 1, unit: null, present: true }],
           missingCount: 0,
-          instructions: "Fry it.",
+          instructions: ["Fry it."],
         },
       ]),
     );
@@ -150,7 +150,7 @@ describe("sendMessage", () => {
       title: "Toast",
       ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
       missingCount: 0,
-      instructions: "Toast it.",
+      instructions: ["Toast it."],
     };
     brain.scriptConverse(
       ok<ChatTurn>({ role: "toolCall", call: { name: "commitCook", args: { main: recipe } } }),
@@ -173,13 +173,13 @@ describe("sendMessage", () => {
       title: "Chicken stir-fry",
       ingredients: [],
       missingCount: 0,
-      instructions: "Sear the chicken.",
+      instructions: ["Sear the chicken."],
     };
     const side = {
       title: "Steamed rice",
       ingredients: [],
       missingCount: 0,
-      instructions: "Steam the rice.",
+      instructions: ["Steam the rice."],
     };
     brain.scriptConverse(
       ok<ChatTurn>({ role: "toolCall", call: { name: "commitCook", args: { main, side } } }),
@@ -215,7 +215,7 @@ describe("confirmCook", () => {
       title: "Toast",
       ingredients: [{ name: "Bread", quantity: 2, unit: null, present: true }],
       missingCount: 0,
-      instructions: "Toast it.",
+      instructions: ["Toast it."],
     };
     const history: ChatTurn[] = [
       { role: "user", text: "cook the toast" },

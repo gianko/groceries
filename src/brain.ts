@@ -115,9 +115,9 @@ export const recipeSuggestionSchema = z.object({
   title: z.string(),
   ingredients: z.array(recipeIngredientSchema),
   missingCount: z.number().int().nonnegative(),
-  // A flowing prose narrative meant to be read start-to-finish while
-  // cooking, not a step list.
-  instructions: z.string(),
+  // Ordered cooking steps, each a single instruction a person can act on
+  // while reading down the list.
+  instructions: z.array(z.string()),
 });
 export type RecipeSuggestion = z.infer<typeof recipeSuggestionSchema>;
 

@@ -1,5 +1,10 @@
 import { useState } from "preact/hooks";
-import { type CookMeal, mealIngredients, mealNarrative, mealTitle } from "../../../src/cook.js";
+import {
+  type CookMeal,
+  mealIngredients,
+  mealInstructionSections,
+  mealTitle,
+} from "../../../src/cook.js";
 import { fmtQty } from "../lib/format";
 
 interface Props {
@@ -9,13 +14,13 @@ interface Props {
   onClose: () => void;
 }
 
-// The combined ingredient list and one flowing narrative for a meal the
+// The combined ingredient list and step-by-step instructions for a meal the
 // agent proposed cooking (main, optionally plus a side) — tap the compact
 // card in the chat to open this, same tap-to-expand pattern as a suggested
 // dish's RecipeModal, then confirm from here.
 export default function MealModal({ meal, sending, onConfirm, onClose }: Props) {
   const [tab, setTab] = useState<"ingredients" | "steps">("ingredients");
-  const narrative = mealNarrative(meal);
+  const sections = mealInstructionSections(meal);
 
   return (
     <div class="modal-overlay">
@@ -53,10 +58,21 @@ export default function MealModal({ meal, sending, onConfirm, onClose }: Props) 
               </div>
             ))}
           </div>
-        ) : narrative === null ? (
+        ) : sections === null ? (
           <p class="steps-empty">Instructions weren't saved for this recipe.</p>
         ) : (
-          <p class="steps-text">{narrative}</p>
+          <div>
+            {sections.map((section) => (
+              <div class="steps-section" key={section.label ?? "steps"}>
+                {section.label && <h3 class="steps-section-title">{section.label}</h3>}
+                <ol class="steps-list">
+                  {section.steps.map((step, i) => (
+                    <li key={i}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
