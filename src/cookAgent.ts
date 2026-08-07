@@ -191,7 +191,7 @@ export async function confirmCook(
   deps: CookAgentDeps,
 ): Promise<ChatAgentResult> {
   const last = history[history.length - 1];
-  if (!last || last.role !== "toolCall" || last.call.name !== "commitCook") {
+  if (last?.role !== "toolCall" || last.call.name !== "commitCook") {
     throw new Error("confirmCook: history does not end with a pending commitCook tool call");
   }
 

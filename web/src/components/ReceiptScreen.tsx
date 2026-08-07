@@ -38,7 +38,7 @@ async function resizeImage(file: File): Promise<File> {
       throw new Error("canvas toBlob failed");
     }
 
-    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+    return new File([blob], `${file.name.replace(/\.\w+$/, "")}.jpg`, { type: "image/jpeg" });
   } finally {
     URL.revokeObjectURL(objectUrl);
   }

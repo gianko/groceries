@@ -136,6 +136,15 @@ export default function ChatPane() {
             ))}
           </div>
         ))}
+        {sending && (
+          <div class="chat-msg agent">
+            <div class="chat-bubble typing-bubble">
+              <span class="typing-dot" />
+              <span class="typing-dot" />
+              <span class="typing-dot" />
+            </div>
+          </div>
+        )}
       </div>
 
       <form class="chat-input-bar" onSubmit={submitMessage}>
