@@ -1,7 +1,7 @@
 import { actions } from "astro:actions";
-import { useState } from "preact/hooks";
+import { useMemo, useState } from "preact/hooks";
 import type { FinishBatchResult } from "../../../src/finish.js";
-import type { InventoryLot } from "../../../src/inventory.js";
+import { filterLots, type InventoryLot } from "../../../src/inventory.js";
 import { useAutoRelistOffers } from "../lib/autoRelistOffers";
 import { useToast } from "../lib/toast";
 import AutoRelistPanel from "./AutoRelistPanel";
@@ -20,8 +20,17 @@ export default function InventoryChecklist({ food, household }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const { offers, addOffers, decideOffer } = useAutoRelistOffers();
   const { toast, show: showToast } = useToast();
+
+  const visibleFood = useMemo(() => filterLots(items.food, query), [items.food, query]);
+  const visibleHousehold = useMemo(
+    () => filterLots(items.household, query),
+    [items.household, query],
+  );
+  const noMatches =
+    query.trim() !== "" && visibleFood.length === 0 && visibleHousehold.length === 0;
 
   function toggle(lotId: number) {
     setSelected((prev) => {
@@ -83,13 +92,25 @@ export default function InventoryChecklist({ food, household }: Props) {
 
       <AutoRelistPanel offers={offers} onDecide={decideOffer} />
 
-      {items.food.length > 0 && (
-        <Section title="🥫 Food" lots={items.food} selected={selected} onToggle={toggle} />
+      <div class="search-row">
+        <input
+          type="search"
+          placeholder="Search pantry…"
+          value={query}
+          onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
+          aria-label="Search pantry"
+        />
+      </div>
+
+      {noMatches && <p class="empty-state">No matches for "{query.trim()}".</p>}
+
+      {visibleFood.length > 0 && (
+        <Section title="🥫 Food" lots={visibleFood} selected={selected} onToggle={toggle} />
       )}
-      {items.household.length > 0 && (
+      {visibleHousehold.length > 0 && (
         <Section
           title="🧻 Household"
-          lots={items.household}
+          lots={visibleHousehold}
           selected={selected}
           onToggle={toggle}
         />

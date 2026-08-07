@@ -84,6 +84,15 @@ export function groupForDisplay(lots: InventoryLot[]): InventorySections {
   return { food, household };
 }
 
+// Case-insensitive substring match on product name, for the pantry search box.
+export function filterLots(lots: InventoryLot[], query: string): InventoryLot[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") {
+    return lots;
+  }
+  return lots.filter((lot) => lot.productName.toLowerCase().includes(needle));
+}
+
 export function renderInventory(lots: InventoryLot[]): InventoryChunk[] {
   const sections = buildSections(lots);
 

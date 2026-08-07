@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterLots,
   groupForDisplay,
   type InventoryLot,
   MESSAGE_LIMIT,
@@ -121,5 +122,35 @@ describe("groupForDisplay", () => {
 
     expect(sections.food).toHaveLength(1);
     expect(sections.household).toHaveLength(0);
+  });
+});
+
+describe("filterLots", () => {
+  const lots = [
+    lot({ lotId: 1, productName: "Whole Milk" }),
+    lot({ lotId: 2, productName: "Bread" }),
+    lot({ lotId: 3, productName: "Oat milk" }),
+  ];
+
+  it("returns all lots when the query is empty or whitespace", () => {
+    expect(filterLots(lots, "")).toEqual(lots);
+    expect(filterLots(lots, "   ")).toEqual(lots);
+  });
+
+  it("matches product names case-insensitively as a substring", () => {
+    expect(filterLots(lots, "milk").map((l) => l.lotId)).toEqual([1, 3]);
+    expect(filterLots(lots, "MILK").map((l) => l.lotId)).toEqual([1, 3]);
+  });
+
+  it("matches on a substring anywhere in the name, not just a prefix", () => {
+    expect(filterLots(lots, "read").map((l) => l.lotId)).toEqual([2]);
+  });
+
+  it("returns an empty array when nothing matches", () => {
+    expect(filterLots(lots, "xyz")).toEqual([]);
+  });
+
+  it("ignores leading/trailing whitespace in the query", () => {
+    expect(filterLots(lots, "  bread  ").map((l) => l.lotId)).toEqual([2]);
   });
 });
