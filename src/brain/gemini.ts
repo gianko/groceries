@@ -25,7 +25,7 @@ import {
 } from "./prompts.js";
 import { realSleep, withBackoff } from "./retry.js";
 
-const DEFAULT_MODEL = "gemini-3.5-flash";
+const DEFAULT_MODEL = "gemini-3.6-flash";
 // The SDK has no default timeout, so a Gemini call that never responds hangs
 // the caller forever instead of surfacing as BrainUnavailableError.
 const REQUEST_TIMEOUT_MS = 30_000;
