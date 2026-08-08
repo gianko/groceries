@@ -52,6 +52,18 @@ describe("loadConfig", () => {
     expect(() => loadConfig(env)).toThrowError(new RegExp(key));
   });
 
+  it("leaves geminiApiKeyPaid undefined when GEMINI_API_KEY_PAID is absent", () => {
+    const config = loadConfig(validEnv);
+
+    expect(config.geminiApiKeyPaid).toBeUndefined();
+  });
+
+  it("parses GEMINI_API_KEY_PAID when present", () => {
+    const config = loadConfig({ ...validEnv, GEMINI_API_KEY_PAID: "gem-paid-key" });
+
+    expect(config.geminiApiKeyPaid).toBe("gem-paid-key");
+  });
+
   it("strips a trailing slash from WEB_APP_URL", () => {
     const config = loadConfig({ ...validEnv, WEB_APP_URL: "https://pantry.example.com/" });
 

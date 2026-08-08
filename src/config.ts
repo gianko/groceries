@@ -1,5 +1,6 @@
 export interface Config {
   geminiApiKey: string;
+  geminiApiKeyPaid?: string;
   tz: string;
   dbPath: string;
   heartbeatPath: string;
@@ -36,6 +37,7 @@ export function loadConfig(env: EnvSource = process.env): Config {
 
   return {
     geminiApiKey: env.GEMINI_API_KEY!,
+    geminiApiKeyPaid: env.GEMINI_API_KEY_PAID || undefined,
     tz: env.TZ!,
     dbPath: env.DB_PATH ?? DEFAULT_DB_PATH,
     heartbeatPath: env.HEARTBEAT_PATH ?? DEFAULT_HEARTBEAT_PATH,

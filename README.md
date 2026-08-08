@@ -74,7 +74,8 @@ pnpm dev                # astro dev, runs against a local SQLite file
 
 | Var | Required | Default | Notes |
 |---|---|---|---|
-| `GEMINI_API_KEY` | yes | — | needs a billing account linked (Google Cloud Console) — the free tier's 20 req/day/model is too low |
+| `GEMINI_API_KEY` | yes | — | tried first; can be a free-tier key — once it fails (e.g. daily quota), the Brain falls back to `GEMINI_API_KEY_PAID` if set |
+| `GEMINI_API_KEY_PAID` | no | — | billed key (Google Cloud Console) used as a fallback once `GEMINI_API_KEY` fails |
 | `TZ` | yes | — | e.g. `Europe/Dublin`; governs snapshot cron timing |
 | `WEB_APP_URL` | yes | — | public URL used to build bootstrap links (`pnpm mint-token`) |
 | `DB_PATH` | no | `pantry.db` | |

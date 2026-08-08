@@ -60,17 +60,40 @@ export interface GeminiModelsClient {
 export interface GeminiBrainOptions {
   model?: string;
   sleep?: (ms: number) => Promise<void>;
+  // A second, separately-billed Gemini account to fall back to once the
+  // primary (typically the free tier) exhausts its own backoff budget —
+  // e.g. on a 429 from the free tier's daily quota.
+  fallbackModels?: GeminiModelsClient;
 }
 
 export class GeminiBrain implements Brain {
   private readonly models: GeminiModelsClient;
+  private readonly fallbackModels: GeminiModelsClient | undefined;
   private readonly model: string;
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(models: GeminiModelsClient, options: GeminiBrainOptions = {}) {
     this.models = models;
+    this.fallbackModels = options.fallbackModels;
     this.model = options.model ?? DEFAULT_MODEL;
     this.sleep = options.sleep ?? realSleep;
+  }
+
+  private async callModel(
+    params: Parameters<GeminiModelsClient["generateContent"]>[0],
+  ): ReturnType<GeminiModelsClient["generateContent"]> {
+    try {
+      return await withBackoff(() => this.models.generateContent(params), this.sleep);
+    } catch (err) {
+      if (!this.fallbackModels) {
+        throw err;
+      }
+      console.warn(
+        "[GeminiBrain] primary Gemini account failed, falling back to secondary account",
+        err,
+      );
+      return await withBackoff(() => this.fallbackModels!.generateContent(params), this.sleep);
+    }
   }
 
   async extractReceipt(photo: Buffer, catalogNames: string[]): Promise<ReceiptExtraction> {
@@ -127,18 +150,14 @@ export class GeminiBrain implements Brain {
       parameters: tool.parameters,
     }));
 
-    const response = await withBackoff(
-      () =>
-        this.models.generateContent({
-          model: this.model,
-          contents,
-          config: {
-            tools: [{ functionDeclarations }],
-            httpOptions: { timeout: REQUEST_TIMEOUT_MS },
-          },
-        }),
-      this.sleep,
-    ).catch((err: unknown) => {
+    const response = await this.callModel({
+      model: this.model,
+      contents,
+      config: {
+        tools: [{ functionDeclarations }],
+        httpOptions: { timeout: REQUEST_TIMEOUT_MS },
+      },
+    }).catch((err: unknown) => {
       throw new BrainUnavailableError("Brain response unavailable", { cause: err });
     });
 
@@ -158,29 +177,27 @@ export class GeminiBrain implements Brain {
   }
 
   private async generateOnce(parts: Part[]): Promise<string> {
-    return withBackoff(async () => {
-      const start = Date.now();
-      console.log(`[GeminiBrain] generateContent request (model=${this.model})`);
-      try {
-        const response = await this.models.generateContent({
-          model: this.model,
-          contents: [{ role: "user", parts }],
-          config: {
-            responseMimeType: "application/json",
-            httpOptions: { timeout: REQUEST_TIMEOUT_MS },
-          },
-        });
-        console.log(`[GeminiBrain] generateContent responded in ${Date.now() - start}ms`);
-        const text = response.text;
-        if (!text) {
-          throw new Error("Empty response from Gemini");
-        }
-        return text;
-      } catch (err) {
-        console.error(`[GeminiBrain] generateContent failed after ${Date.now() - start}ms`, err);
-        throw err;
+    const start = Date.now();
+    console.log(`[GeminiBrain] generateContent request (model=${this.model})`);
+    try {
+      const response = await this.callModel({
+        model: this.model,
+        contents: [{ role: "user", parts }],
+        config: {
+          responseMimeType: "application/json",
+          httpOptions: { timeout: REQUEST_TIMEOUT_MS },
+        },
+      });
+      console.log(`[GeminiBrain] generateContent responded in ${Date.now() - start}ms`);
+      const text = response.text;
+      if (!text) {
+        throw new Error("Empty response from Gemini");
       }
-    }, this.sleep);
+      return text;
+    } catch (err) {
+      console.error(`[GeminiBrain] generateContent failed after ${Date.now() - start}ms`, err);
+      throw err;
+    }
   }
 
   // One retry on parse failure, layered on top of generateOnce's own
@@ -206,9 +223,10 @@ export class GeminiBrain implements Brain {
   }
 }
 
-export function createGeminiBrain(apiKey: string): GeminiBrain {
+export function createGeminiBrain(apiKey: string, paidApiKey?: string): GeminiBrain {
   const ai = new GoogleGenAI({ apiKey });
-  return new GeminiBrain(ai.models);
+  const fallbackModels = paidApiKey ? new GoogleGenAI({ apiKey: paidApiKey }).models : undefined;
+  return new GeminiBrain(ai.models, { fallbackModels });
 }
 
 function toGeminiContent(turn: ChatTurn): { role: string; parts: Part[] } {

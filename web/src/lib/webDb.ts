@@ -35,7 +35,7 @@ export function getBrain(): Brain {
       console.warn("[FakeBrain] FAKE_BRAIN=1 — using canned Brain responses, not calling Gemini");
       brain = createFakeBrain();
     } else {
-      brain = createGeminiBrain(getConfig().geminiApiKey);
+      brain = createGeminiBrain(getConfig().geminiApiKey, getConfig().geminiApiKeyPaid);
     }
   }
   return brain;

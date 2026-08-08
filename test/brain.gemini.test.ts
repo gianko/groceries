@@ -167,6 +167,52 @@ describe("GeminiBrain", () => {
     expect(promptText).toContain("milk");
   });
 
+  describe("fallback account", () => {
+    it("falls back to the secondary account once the primary account's backoff budget is exhausted", async () => {
+      const sleepCalls: number[] = [];
+      const primary = vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error("quota exceeded"), { status: 429 }));
+      const fallback = vi.fn().mockResolvedValue(jsonResponse(validExtraction));
+      const brain = new GeminiBrain(
+        { generateContent: primary },
+        {
+          sleep: async (ms) => {
+            sleepCalls.push(ms);
+          },
+          fallbackModels: { generateContent: fallback },
+        },
+      );
+
+      const result = await brain.extractReceipt(Buffer.from("photo"), []);
+
+      expect(result.lines).toHaveLength(1);
+      // 1 initial + 2 backoff retries on the primary, then the fallback succeeds first try.
+      expect(primary).toHaveBeenCalledTimes(3);
+      expect(fallback).toHaveBeenCalledTimes(1);
+    });
+
+    it("throws BrainUnavailableError when both the primary and fallback accounts fail", async () => {
+      const primary = vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error("quota exceeded"), { status: 429 }));
+      const fallback = vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error("quota exceeded"), { status: 429 }));
+      const brain = new GeminiBrain(
+        { generateContent: primary },
+        {
+          sleep: async () => {},
+          fallbackModels: { generateContent: fallback },
+        },
+      );
+
+      await expect(brain.extractReceipt(Buffer.from("photo"), [])).rejects.toThrow(
+        BrainUnavailableError,
+      );
+    });
+  });
+
   describe("converse", () => {
     const tools: ChatTool[] = [
       { name: "checkInventory", description: "Check pantry inventory", parameters: {} },
