@@ -100,8 +100,12 @@ export class BrainFake implements Brain {
     return consume(this.reviseFreeTextItemsQueue);
   }
 
-  async converse(history: ChatTurn[], tools: ChatTool[]): Promise<ChatTurn> {
-    this.calls.push({ method: "converse", args: [history, tools] });
+  async converse(
+    history: ChatTurn[],
+    tools: ChatTool[],
+    systemInstruction?: string,
+  ): Promise<ChatTurn> {
+    this.calls.push({ method: "converse", args: [history, tools, systemInstruction] });
     return consume(this.converseQueue);
   }
 }

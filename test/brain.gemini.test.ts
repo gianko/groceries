@@ -283,6 +283,24 @@ describe("GeminiBrain", () => {
       });
     });
 
+    it("passes the system instruction through to Gemini", async () => {
+      const generateContent = vi.fn().mockResolvedValue({ text: "Two options tonight." });
+      const brain = createBrain({ generateContent });
+
+      await brain.converse([{ role: "user", text: "what's for dinner?" }], tools, "Be brief.");
+
+      expect(generateContent.mock.calls[0]![0].config.systemInstruction).toBe("Be brief.");
+    });
+
+    it("omits the system instruction when none is given", async () => {
+      const generateContent = vi.fn().mockResolvedValue({ text: "Two options tonight." });
+      const brain = createBrain({ generateContent });
+
+      await brain.converse([{ role: "user", text: "what's for dinner?" }], tools);
+
+      expect(generateContent.mock.calls[0]![0].config).not.toHaveProperty("systemInstruction");
+    });
+
     it("uses only the first function call and warns when Gemini returns more than one", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const generateContent = vi.fn().mockResolvedValue({

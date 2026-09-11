@@ -31,7 +31,10 @@ export interface Brain {
   // The caller — not this method — executes the tool, decides confirmation
   // semantics, appends a toolResult turn, and calls converse again to
   // continue the loop.
-  converse(history: ChatTurn[], tools: ChatTool[]): Promise<ChatTurn>;
+  // `systemInstruction` carries the calling agent's standing policy (its
+  // role, and how its replies should read). It is resent on every call
+  // because each turn is an independent request.
+  converse(history: ChatTurn[], tools: ChatTool[], systemInstruction?: string): Promise<ChatTurn>;
 }
 
 export interface ChatTool {

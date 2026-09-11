@@ -144,6 +144,20 @@ const TOOLS: ChatTool[] = [
 // can't loop forever without a human ever seeing a reply.
 const MAX_STEPS = 6;
 
+// Every suggestion the agent makes is also rendered as a recipe card below
+// the reply — title, missing-ingredient count, the full ingredient list on
+// tap. Left to itself the model restates all of that as Markdown headings
+// and bullets, which the chat bubble renders as literal "###" and "**" and
+// which pushes the cards it duplicates below the fold on a phone. So the
+// reply's job is only to frame the cards, not to repeat them.
+const SYSTEM_INSTRUCTION = `You are the cook agent for a household pantry app, talking to someone on their phone.
+
+Recipe suggestions you make are displayed to the user as cards directly beneath your reply. Each card already shows the dish name, how many ingredients are missing, and the full ingredient list. Never repeat that detail in your reply.
+
+Keep replies to one or two short sentences that frame the cards — say what you found and why it fits (an ingredient that's expiring, a favourite they've rated), then stop.
+
+Write plain conversational sentences. No Markdown: no headings, no bullet lists, no bold, no horizontal rules. Never number the dishes; the cards are already ordered.`;
+
 export type ChatAttachment =
   | { type: "recipe"; recipe: CookRecipe }
   | { type: "confirmCook"; meal: CookMeal }
@@ -244,7 +258,7 @@ async function runLoop(
   for (let step = 0; step < MAX_STEPS; step++) {
     let turn: ChatTurn;
     try {
-      turn = await deps.brain.converse(turns, TOOLS);
+      turn = await deps.brain.converse(turns, TOOLS, SYSTEM_INSTRUCTION);
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
         // A tool that already ran produced real content (recipe cards, a

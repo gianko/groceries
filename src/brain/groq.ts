@@ -33,6 +33,7 @@ type ContentPart =
   | { type: "image_url"; image_url: { url: string } };
 
 type Message =
+  | { role: "system"; content: string }
   | { role: "user"; content: string | ContentPart[] }
   | { role: "assistant"; content: string | null; tool_calls?: ToolCallPart[] }
   | { role: "tool"; tool_call_id: string; content: string };
@@ -143,8 +144,15 @@ export class GroqBrain implements Brain {
     return this.generateJson(messages, freeTextExtractionSchema);
   }
 
-  async converse(history: ChatTurn[], tools: ChatTool[]): Promise<ChatTurn> {
-    const messages = history.map((turn, index) => toGroqMessage(turn, index));
+  async converse(
+    history: ChatTurn[],
+    tools: ChatTool[],
+    systemInstruction?: string,
+  ): Promise<ChatTurn> {
+    const messages: Message[] = history.map((turn, index) => toGroqMessage(turn, index));
+    if (systemInstruction) {
+      messages.unshift({ role: "system", content: systemInstruction });
+    }
     const toolDeclarations: ToolDeclaration[] = tools.map((tool) => ({
       type: "function",
       function: { name: tool.name, description: tool.description, parameters: tool.parameters },

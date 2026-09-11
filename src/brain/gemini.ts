@@ -64,6 +64,7 @@ export interface GeminiModelsClient {
       responseMimeType?: string;
       tools?: { functionDeclarations: FunctionDeclaration[] }[];
       httpOptions?: { timeout?: number };
+      systemInstruction?: string;
     };
   }): Promise<{
     text?: string;
@@ -159,7 +160,11 @@ export class GeminiBrain implements Brain {
     return this.generateJson(parts, freeTextExtractionSchema);
   }
 
-  async converse(history: ChatTurn[], tools: ChatTool[]): Promise<ChatTurn> {
+  async converse(
+    history: ChatTurn[],
+    tools: ChatTool[],
+    systemInstruction?: string,
+  ): Promise<ChatTurn> {
     const contents = history.map(toGeminiContent);
     const functionDeclarations = tools.map((tool) => ({
       name: tool.name,
@@ -173,6 +178,7 @@ export class GeminiBrain implements Brain {
       config: {
         tools: [{ functionDeclarations }],
         httpOptions: { timeout: REQUEST_TIMEOUT_MS },
+        ...(systemInstruction ? { systemInstruction } : {}),
       },
     }).catch((err: unknown) => {
       throw new BrainUnavailableError("Brain response unavailable", { cause: err });

@@ -70,6 +70,22 @@ describe("sendMessage", () => {
     ]);
   });
 
+  // The reply's job is to frame the recipe cards, not restate them: without
+  // a standing instruction the model answers in Markdown, which the chat
+  // bubble renders literally.
+  it("sends the cook agent's system instruction on every converse call", async () => {
+    const db = createDb();
+    const brain = new BrainFake();
+    brain.scriptConverse(ok<ChatTurn>({ role: "model", text: "Two options tonight." }));
+
+    await sendMessage([], "what should I cook?", makeDeps(brain, db));
+
+    const converseCall = brain.calls.find((call) => call.method === "converse");
+    const instruction = String(converseCall?.args[2] ?? "");
+    expect(instruction).toContain("cook agent");
+    expect(instruction).toContain("No Markdown");
+  });
+
   it("passes a constraint through to the Brain call", async () => {
     const db = createDb();
     const brain = new BrainFake();

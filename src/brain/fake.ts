@@ -108,7 +108,11 @@ export class FakeBrain implements Brain {
     return current;
   }
 
-  async converse(_history: ChatTurn[], _tools: ChatTool[]): Promise<ChatTurn> {
+  async converse(
+    _history: ChatTurn[],
+    _tools: ChatTool[],
+    _systemInstruction?: string,
+  ): Promise<ChatTurn> {
     const turn = this.scriptedConversation[this.conversationStep];
     if (!turn) {
       throw new BrainUnavailableError(
