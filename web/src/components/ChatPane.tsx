@@ -1,5 +1,5 @@
 import { actions } from "astro:actions";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import type { ChatTurn } from "../../../src/brain.js";
 import {
   type CookMeal,
@@ -40,6 +40,17 @@ export default function ChatPane() {
   const [awaitingConfirm, setAwaitingConfirm] = useState(false);
   const [openRecipe, setOpenRecipe] = useState<CookRecipe | null>(null);
   const [openMeal, setOpenMeal] = useState<CookMeal | null>(null);
+  // The server-rendered markup is on screen and tappable before Preact
+  // hydrates it. Until then the form has no submit handler, so a tap on send
+  // submits it natively — /cook reloads and the message vanishes — and text
+  // typed into the input sits in the DOM without ever reaching `input`, so
+  // the first real send would post an empty message. Keep the bar disabled
+  // until this effect runs, which is the first moment the handlers are live.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+  const inputDisabled = !hydrated || sending || awaitingConfirm;
 
   function applyResult(data: AgentResult) {
     setHistory(data.history);
@@ -53,7 +64,7 @@ export default function ChatPane() {
   async function submitMessage(e: Event) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || sending || awaitingConfirm) {
+    if (!text || !hydrated || sending || awaitingConfirm) {
       return;
     }
     setInput("");
@@ -151,15 +162,19 @@ export default function ChatPane() {
         <input
           type="text"
           value={input}
-          disabled={sending || awaitingConfirm}
+          disabled={inputDisabled}
           placeholder={
-            awaitingConfirm ? "Confirm the cook above to continue…" : "Ask the cook agent…"
+            !hydrated
+              ? "Starting up…"
+              : awaitingConfirm
+                ? "Confirm the cook above to continue…"
+                : "Ask the cook agent…"
           }
           onInput={(e) => setInput((e.target as HTMLInputElement).value)}
         />
         <button
           type="submit"
-          disabled={sending || awaitingConfirm || input.trim().length === 0}
+          disabled={inputDisabled || input.trim().length === 0}
           aria-label="Send"
         >
           ↑
