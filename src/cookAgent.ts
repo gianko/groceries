@@ -239,7 +239,13 @@ async function runLoop(
       turn = await deps.brain.converse(turns, TOOLS);
     } catch (err) {
       if (err instanceof BrainUnavailableError) {
-        return { history: turns, reply: "🧠 Busy right now — try again in a minute.", attachments };
+        // A tool that already ran produced real content (recipe cards, a
+        // finish checklist), so the turn did not fail — only the
+        // conversational wrapper around it did. Returning the busy line
+        // here would stack an error bubble on top of good results; let the
+        // attachments speak for themselves instead.
+        const reply = attachments.length > 0 ? "" : "🧠 Busy right now — try again in a minute.";
+        return { history: turns, reply, attachments };
       }
       throw err;
     }

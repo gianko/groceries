@@ -203,6 +203,35 @@ describe("sendMessage", () => {
 
     expect(result.reply).toContain("🧠");
   });
+
+  // Regression: the Brain going unavailable on the follow-up turn used to
+  // discard the fact that suggestRecipes had already succeeded, so the UI
+  // rendered "🧠 Busy right now" directly above a perfectly good set of
+  // recipe cards. A turn that produced attachments did not fail.
+  it("does not report failure when a tool already produced attachments", async () => {
+    const db = createDb();
+    const brain = new BrainFake();
+    const { BrainUnavailableError } = await import("../src/brain.js");
+    brain.scriptConverse(
+      ok<ChatTurn>({ role: "toolCall", call: { name: "suggestRecipes", args: {} } }),
+      fail(new BrainUnavailableError("down")),
+    );
+    brain.scriptSuggestRecipes(
+      ok([
+        {
+          title: "Pasta bake",
+          ingredients: [{ name: "Pasta", quantity: 1, unit: null, present: true }],
+          missingCount: 0,
+          instructions: ["Boil, then bake."],
+        },
+      ]),
+    );
+
+    const result = await sendMessage([], "what's for dinner", makeDeps(brain, db));
+
+    expect(result.attachments).toHaveLength(1);
+    expect(result.reply).toBe("");
+  });
 });
 
 describe("confirmCook", () => {

@@ -101,7 +101,7 @@ export default function ChatPane() {
         )}
         {messages.map((msg, i) => (
           <div class={`chat-msg ${msg.role}`} key={i}>
-            <div class="chat-bubble">{msg.text}</div>
+            {msg.text && <div class="chat-bubble">{msg.text}</div>}
             {msg.attachments.map((attachment, j) => (
               <div class="chat-attachment" key={j}>
                 {attachment.type === "recipe" && (
