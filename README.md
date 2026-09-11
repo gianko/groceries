@@ -2,6 +2,25 @@
 
 A household food + pantry inventory tracker for two users, built around Tesco Ireland receipt photos. Snap a receipt in the Chefbotcito web app, confirm the parse, and it tracks what's in the house, nudges you before food expires, suggests what to cook, and keeps a shopping list in sync.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/pantry.jpg" alt="Pantry screen listing food in stock, soonest-expiring first" width="240"></td>
+    <td align="center"><img src="docs/screenshots/cook.jpg" alt="Cook screen: a chat reply framing two recipe cards" width="240"></td>
+    <td align="center"><img src="docs/screenshots/shopping.jpg" alt="Shopping list screen" width="240"></td>
+    <td align="center"><img src="docs/screenshots/staples.jpg" alt="Staples and household preferences screen" width="240"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Pantry</b><br>what's in stock, soonest to expire first</td>
+    <td align="center"><b>Cook</b><br>asks the agent, gets dishes built from what's on hand</td>
+    <td align="center"><b>Shopping</b><br>the list, plus Cycle Guesses and use-soon nudges</td>
+    <td align="center"><b>Staples</b><br>always-assumed-present items and cooking prefs</td>
+  </tr>
+</table>
+
+Installed to the home screen as a PWA; every screen is built for one-handed phone use.
+
 ## What it does
 
 - **Receipt-photo ingestion** — upload a photo of a Tesco receipt and Gemini extracts line items into Products and Stock Lots. Known raw receipt strings (e.g. `T.FIN B/BEANS 420G`) are remembered permanently, so the same product never needs re-parsing.
