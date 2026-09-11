@@ -43,6 +43,12 @@ export interface ChatTool {
 export interface ToolCall {
   name: string;
   args: Record<string, unknown>;
+  // Opaque, provider-owned state that has to be handed back verbatim when
+  // this call is replayed in a later request. Thinking models issue one per
+  // tool call and reject the whole conversation if it goes missing, so the
+  // seam has to carry it even though only the provider can read it. Nothing
+  // outside a Brain implementation should inspect or construct this.
+  providerMeta?: unknown;
 }
 
 export type ChatTurn =

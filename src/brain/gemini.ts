@@ -33,8 +33,22 @@ const REQUEST_TIMEOUT_MS = 30_000;
 type Part =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } }
-  | { functionCall: { name: string; args: Record<string, unknown> } }
+  // thoughtSignature is the opaque token a thinking model issues alongside a
+  // function call and demands back when that call is replayed. See
+  // ToolCall.providerMeta.
+  | {
+      functionCall: { name: string; args: Record<string, unknown> };
+      thoughtSignature?: string;
+    }
   | { functionResponse: { name: string; response: Record<string, unknown> } };
+
+// The read side of a Part. Kept separate from the request-side `Part` union
+// because everything the API sends back is optional, so the strict union
+// above can't describe it.
+type ResponsePart = {
+  functionCall?: { name?: string };
+  thoughtSignature?: string;
+};
 
 interface FunctionDeclaration {
   name: string;
@@ -54,6 +68,9 @@ export interface GeminiModelsClient {
   }): Promise<{
     text?: string;
     functionCalls?: { name?: string; args?: Record<string, unknown> }[];
+    // functionCalls flattens the parts away, losing each call's
+    // thoughtSignature, so converse reads the raw candidate parts instead.
+    candidates?: { content?: { parts?: ResponsePart[] } }[];
   }>;
 }
 
@@ -168,7 +185,16 @@ export class GeminiBrain implements Brain {
           `[GeminiBrain] converse: Gemini returned ${response.functionCalls.length} function calls in one turn, using only the first ("${call.name}")`,
         );
       }
-      return { role: "toolCall", call: { name: call.name, args: call.args ?? {} } };
+      // Thinking models attach an opaque thoughtSignature to the part
+      // carrying the function call, and reject a later request that replays
+      // the call without it ("Function call is missing a thought_signature",
+      // 400). It lives on the part, not on response.functionCalls, so pull
+      // it from the candidate and stash it for toGeminiContent to hand back.
+      const signature = findFunctionCallSignature(response, call.name);
+      return {
+        role: "toolCall",
+        call: { name: call.name, args: call.args ?? {}, providerMeta: signature },
+      };
     }
     if (!response.text) {
       throw new BrainUnavailableError("Brain response unavailable: empty reply");
@@ -235,17 +261,30 @@ function toGeminiContent(turn: ChatTurn): { role: string; parts: Part[] } {
       return { role: "user", parts: [{ text: turn.text }] };
     case "model":
       return { role: "model", parts: [{ text: turn.text }] };
-    case "toolCall":
-      return {
-        role: "model",
-        parts: [{ functionCall: { name: turn.call.name, args: turn.call.args } }],
-      };
+    case "toolCall": {
+      const part: Part = { functionCall: { name: turn.call.name, args: turn.call.args } };
+      if (typeof turn.call.providerMeta === "string") {
+        part.thoughtSignature = turn.call.providerMeta;
+      }
+      return { role: "model", parts: [part] };
+    }
     case "toolResult":
       return {
         role: "user",
         parts: [{ functionResponse: { name: turn.name, response: { result: turn.result } } }],
       };
   }
+}
+
+// The signature sits on the Part wrapping the function call, which
+// response.functionCalls flattens away. Match on the call name so a turn
+// carrying several parts still finds the right one.
+function findFunctionCallSignature(
+  response: { candidates?: { content?: { parts?: ResponsePart[] } }[] },
+  callName: string,
+): string | undefined {
+  const parts = response.candidates?.[0]?.content?.parts ?? [];
+  return parts.find((part) => part.functionCall?.name === callName)?.thoughtSignature;
 }
 
 function imagePart(photo: Buffer): Part {

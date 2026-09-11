@@ -232,6 +232,57 @@ describe("GeminiBrain", () => {
       });
     });
 
+    // Regression: gemini-3.6-flash rejects a replayed function call whose
+    // thought_signature is missing (400 INVALID_ARGUMENT), which broke every
+    // multi-step cook turn. The signature rides on the candidate part, not
+    // on functionCalls, and has to survive the round trip through history.
+    it("carries the thought signature off the function call part", async () => {
+      const generateContent = vi.fn().mockResolvedValue({
+        functionCalls: [{ name: "checkInventory", args: {} }],
+        candidates: [
+          {
+            content: {
+              parts: [
+                { functionCall: { name: "fetchFavorites" }, thoughtSignature: "wrong-one" },
+                { functionCall: { name: "checkInventory" }, thoughtSignature: "sig-abc123" },
+              ],
+            },
+          },
+        ],
+      });
+      const brain = createBrain({ generateContent });
+
+      const turn = await brain.converse([{ role: "user", text: "what's in the pantry?" }], tools);
+
+      expect(turn).toEqual({
+        role: "toolCall",
+        call: { name: "checkInventory", args: {}, providerMeta: "sig-abc123" },
+      });
+    });
+
+    it("hands the thought signature back when replaying a tool call", async () => {
+      const generateContent = vi.fn().mockResolvedValue({ text: "You have beans." });
+      const brain = createBrain({ generateContent });
+
+      await brain.converse(
+        [
+          { role: "user", text: "what's in the pantry?" },
+          {
+            role: "toolCall",
+            call: { name: "checkInventory", args: {}, providerMeta: "sig-abc123" },
+          },
+          { role: "toolResult", name: "checkInventory", result: ["beans"] },
+        ],
+        tools,
+      );
+
+      const replayed = generateContent.mock.calls[0]![0].contents[1];
+      expect(replayed.parts[0]).toEqual({
+        functionCall: { name: "checkInventory", args: {} },
+        thoughtSignature: "sig-abc123",
+      });
+    });
+
     it("uses only the first function call and warns when Gemini returns more than one", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const generateContent = vi.fn().mockResolvedValue({

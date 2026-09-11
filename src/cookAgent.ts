@@ -159,7 +159,15 @@ export interface ChatAgentResult {
 // the client holds ChatTurn[] history in memory (reset on page load, per
 // #50) and resends the full history on every call, since Actions are
 // stateless request handlers with no session to keep it in.
-const toolCallSchema = z.object({ name: z.string(), args: z.record(z.string(), z.unknown()) });
+// `providerMeta` rides along verbatim: it's opaque provider state (see
+// ToolCall) that the Brain needs back on the next request, and the client
+// holds the history between turns, so stripping it here would silently
+// break multi-step tool conversations.
+const toolCallSchema = z.object({
+  name: z.string(),
+  args: z.record(z.string(), z.unknown()),
+  providerMeta: z.unknown().optional(),
+});
 export const chatTurnSchema = z.discriminatedUnion("role", [
   z.object({ role: z.literal("user"), text: z.string() }),
   z.object({ role: z.literal("model"), text: z.string() }),
