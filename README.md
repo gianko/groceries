@@ -6,14 +6,18 @@ A household food + pantry inventory tracker for two users, built around Tesco Ir
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/pantry.jpg" alt="Pantry screen listing food in stock, soonest-expiring first" width="240"></td>
-    <td align="center"><img src="docs/screenshots/cook.jpg" alt="Cook screen: a chat reply framing two recipe cards" width="240"></td>
-    <td align="center"><img src="docs/screenshots/shopping.jpg" alt="Shopping list screen" width="240"></td>
-    <td align="center"><img src="docs/screenshots/staples.jpg" alt="Staples and household preferences screen" width="240"></td>
+    <td align="center" width="50%"><img src="docs/screenshots/pantry.jpg" alt="Pantry screen listing food in stock, soonest-expiring first" width="300"></td>
+    <td align="center" width="50%"><img src="docs/screenshots/cook.jpg" alt="Cook screen: a chat reply framing two recipe cards" width="300"></td>
   </tr>
   <tr>
     <td align="center"><b>Pantry</b><br>what's in stock, soonest to expire first</td>
     <td align="center"><b>Cook</b><br>asks the agent, gets dishes built from what's on hand</td>
+  </tr>
+  <tr>
+    <td align="center" width="50%"><img src="docs/screenshots/shopping.jpg" alt="Shopping list screen" width="300"></td>
+    <td align="center" width="50%"><img src="docs/screenshots/staples.jpg" alt="Staples and household preferences screen" width="300"></td>
+  </tr>
+  <tr>
     <td align="center"><b>Shopping</b><br>the list, plus Cycle Guesses and use-soon nudges</td>
     <td align="center"><b>Staples</b><br>always-assumed-present items and cooking prefs</td>
   </tr>
