@@ -1,6 +1,6 @@
-# Pantry
+# Chefbotcito
 
-A household food + pantry inventory tracker for two users, built around Tesco Ireland receipt photos. Snap a receipt in the Pantry web app, confirm the parse, and it tracks what's in the house, nudges you before food expires, suggests what to cook, and keeps a shopping list in sync.
+A household food + pantry inventory tracker for two users, built around Tesco Ireland receipt photos. Snap a receipt in the Chefbotcito web app, confirm the parse, and it tracks what's in the house, nudges you before food expires, suggests what to cook, and keeps a shopping list in sync.
 
 ## What it does
 
@@ -122,4 +122,4 @@ docker compose up -d
 
 ## Status
 
-Started as a Telegram bot (issue #1), then rebuilt as a standalone web app once the Mini App work (#19–#48) showed the web UI could cover everything the bot did; the bot was deleted in #51 and the deploy consolidated to one process in #52.
+Chefbotcito started as a Telegram bot (issue #1), then rebuilt as a standalone web app once the Mini App work (#19–#48) showed the web UI could cover everything the bot did; the bot was deleted in #51 and the deploy consolidated to one process in #52.

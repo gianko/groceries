@@ -1,6 +1,6 @@
-# Pantry Bot
+# Chefbotcito
 
-A household food + pantry inventory assistant for two users, driven by Tesco Ireland receipt photos through a Telegram group.
+A household food + pantry inventory assistant for two users, driven by Tesco Ireland receipt photos through a web app installed to the phone home screen.
 
 ## Language
 
